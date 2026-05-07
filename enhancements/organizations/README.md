@@ -162,7 +162,7 @@ This flow uses standard OIDC protocol endpoints; OSAC does not provide custom to
    - Creation of a Keycloak realm for the organization (via Keycloak Admin API)
    - Creation of standard OSAC roles in the Keycloak realm (tenant-admin, tenant-reader, tenant-user, idp-manager)
    - Creation of a break-glass account for the organization directly in Keycloak (via Keycloak Admin API) - Keycloak is the single source of truth for break-glass accounts
-   - Creation of a "default" Project in the Organization
+   - Creation of a "default" Project in the Organization (users do NOT automatically have access to this project - permissions must be explicitly granted via Keycloak Authorization Services)
 
 4. The organization creation response includes the break-glass account credentials (username and initial password).
 
@@ -247,7 +247,7 @@ This flow uses standard OIDC protocol endpoints; OSAC does not provide custom to
 - Users only see Projects they have permissions on when listing projects
 - Different users can have different permissions on different Projects within the same Organization
 - Project permissions are scoped (e.g., `VIEW_PROJECT`, `CREATE_COMPUTE_INSTANCE`, `MANAGE_PROJECT`)
-- Parent project administrators can optionally be granted automatic access to child projects via Keycloak Authorization policies
+- **Hierarchical permissions**: Users with `MANAGE_PROJECT` or `VIEW_PROJECT` permission on a parent project automatically receive the same permission on all child projects. Resource-specific permissions (e.g., `CREATE_COMPUTE_INSTANCE`) do NOT cascade - these must be granted explicitly per project. See [Hierarchical Project Permissions](#hierarchical-project-permissions) for details.
 - Project hierarchy is stored in the database and enforced through Keycloak Authorization policies
 
 ### API Extensions
