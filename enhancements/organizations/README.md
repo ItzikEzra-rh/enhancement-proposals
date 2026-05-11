@@ -199,9 +199,9 @@ This flow uses standard OIDC protocol endpoints; OSAC does not provide custom to
 3. OSAC creates the Project within the Organization, which triggers:
    - Creation of a Project record in the database with hierarchy information (parent-child relationships)
    - Creation of a Keycloak Authorization Resource representing the Project (e.g., `PROJECT-acme-web-app`)
-   - Reconciliation to create corresponding OpenShift Projects in all managed clusters (e.g., `osac-org-<org-name>-project-<project-name>`)
+   - **Implementation note**: To avoid N×M scalability issues with many projects and clusters, OpenShift Project creation can be deferred until resources are first deployed to a specific cluster (on-demand creation) rather than pre-creating in all managed clusters upfront
    - OpenShift Projects include owner reference or annotations to represent the parent-child relationship for nested projects
-   - If new clusters are added later, reconciliation creates the OpenShift Projects there
+   - If new clusters are added later, reconciliation creates OpenShift Projects as needed when resources are deployed
    - Project is ready to contain resources (VMs, Networks, Volumes, etc.) or child projects
 
 4. Tenant Admin can then:
@@ -398,6 +398,7 @@ OSAC uses a two-tier permission model: Organization-level roles (managed as Keyc
 - Users specify the project in the API request (either in the request body or as a path/query parameter)
 - Authorino validates that the user has the required permission on the specified Project before allowing the request to proceed
 - The Fulfillment Service filters resources to only those within the specified Project
+- **Implementation note**: Database queries must use efficient indexing on `project_id` and `organization_id` columns to ensure good performance when filtering resources
 - This provides clear context and simplifies authorization - each request explicitly states which Project it operates on
 - The OSAC Console uses a project switcher (similar to OpenShift) where users select their current project context
 - The CLI requires explicit project specification via flags or configuration
@@ -441,8 +442,9 @@ OSAC uses a two-tier permission model: Organization-level roles (managed as Keyc
 - Project names are unique within an Organization, so the OpenShift Project name format is sufficient for all projects (including nested projects)
 - Due to OpenShift's name length limits, the full project hierarchy is not encoded in the OpenShift Project name
 - Parent-child relationships are stored in the database and represented on OpenShift Projects via owner references or annotations
-- When a Project is created, OSAC reconciles to create the OpenShift Project in all managed infrastructure clusters
-- If new clusters are added later, reconciliation creates the OpenShift Projects for existing OSAC Projects
+- OpenShift Projects can be created on-demand when resources are first deployed to a cluster, avoiding N×M scaling issues with many projects and clusters
+- Alternatively, OpenShift Projects can be pre-created in all managed clusters at Project creation time for simpler implementation
+- If new clusters are added later, reconciliation creates OpenShift Projects as needed (either immediately or on-demand depending on implementation choice)
 - Organizations do not directly map to OpenShift Projects; they are logical containers for Projects
 - OSAC's authentication to infrastructure clusters, credential management (kubeconfig storage), and ensuring continued API access are implementation details deferred to infrastructure management design
 
