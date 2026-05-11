@@ -16,7 +16,7 @@ superseded-by:
 
 ## Summary
 
-This enhancement introduces VM instance types as pre-defined compute resource bundles (cores, memory) that can be referenced by name when creating virtual machines. Instance types simplify VM creation by providing a standardized set of compute configurations, following cloud-native patterns similar to AWS EC2 instance types, Azure VM sizes, and GCP machine types. In the initial implementation (Phase 1), all instance types are globally scoped and defined by the Cloud Service Provider, ensuring consistency and preventing configuration fragmentation. Users select an instance type by name rather than specifying individual cores and memory values. This proposal focuses on Virtual Machine-as-a-Service (VMaaS) compute instances only; Cluster-as-a-Service (CaaS) uses bare metal provisioning with a separate resource classification system (`HostType`) and is not covered by this enhancement.
+This enhancement introduces VM instance types as pre-defined compute resource bundles (cores, memory) that can be referenced by name when creating virtual machines. Instance types simplify VM creation by providing a standardized set of compute configurations, following cloud-native patterns similar to AWS EC2 instance types, Azure VM sizes, and GCP machine types. All instance types are global. The instance type concept exists only at the gRPC API layer (fulfillment-service); at the Kubernetes CR level, instance types are expanded to cores/memory_gib fields. Users select an instance type by name rather than specifying individual cores and memory values. This proposal focuses on Virtual Machine-as-a-Service (VMaaS) compute instances only; Cluster-as-a-Service (CaaS) uses bare metal provisioning with a separate resource classification system (`HostType`) and is not covered by this enhancement.
 
 ## Motivation
 
@@ -35,9 +35,8 @@ The current ComputeInstance API allows users to specify compute resources (cores
 * Provide a self-service API for Organization Users to list available instance types and create VMs using instance type names
 * Require all ComputeInstance creation to use instance types (strict mode), removing the ability to specify cores and memory individually
 * Support globally-scoped instance types defined and managed by Cloud Provider Admins only
-* Enable/disable instance types globally to control availability without deleting type definitions
+* Support instance type lifecycle states (ACTIVE → DEPRECATED → OBSOLETE) following GCP deprecation model, allowing graceful migration without deleting type definitions
 * Ensure instance type compute specifications (cores, memory) are immutable after creation to prevent inconsistencies
-* Maintain backward compatibility for existing VMs created before instance types are introduced
 
 ### Non-Goals
 
@@ -51,22 +50,23 @@ The following are explicitly out of scope for Phase 1:
 * Quota enforcement and capacity planning based on instance types (quota system not yet defined in OSAC)
 * Pricing or metering metadata associated with instance types
 * Network bandwidth constraints or network performance tiers
-* Per-organization instance type restrictions (all orgs see all enabled instance types in Phase 1)
+* Per-organization instance type restrictions
 
 ## Proposal
 
-This proposal introduces a new `InstanceType` resource that defines pre-configured compute bundles with immutable core and memory specifications. The Cloud Service Provider creates and manages all instance types, which are globally visible to all organizations when enabled. The `ComputeInstance` API is modified to require an `instance_type` field and remove the existing `cores` and `memory_gib` fields. Disk specifications remain separate from instance types, as storage and compute are decoupled following industry-standard cloud patterns.
+This proposal introduces a new `InstanceType` resource that defines pre-configured compute bundles with immutable core and memory specifications. The Cloud Service Provider creates and manages all instance types, which are globally visible to all organizations. The `ComputeInstance` gRPC API is modified to require an `instance_type` field and remove the existing `cores` and `memory_gib` fields (the Kubernetes CR retains these fields, populated by fulfillment-service). Disk specifications remain separate from instance types, as storage and compute are decoupled following industry-standard cloud patterns. Instance types include a deprecation mechanism to manage lifecycle transitions.
 
 ### Key Resources
 
 **InstanceType** - Provider-defined compute specification
-* Globally scoped, visible to all organizations when enabled
+* Globally scoped, visible to all organizations
 * Immutable compute specs (cores, memory_gib)
-* Mutable metadata (description, enabled flag)
+* Mutable metadata (description, state)
+* State lifecycle: ACTIVE → DEPRECATED → OBSOLETE (following GCP deprecation model)
 * Cloud Provider Admin-only creation and management
 
 **ComputeInstance (modified)** - Virtual machine resource
-* Now requires `instance_type` field (string reference to InstanceType ID)
+* Now requires `instance_type` field (string reference to InstanceType name)
 * Removes `cores` and `memory_gib` fields from ComputeInstanceSpec
 * Retains `boot_disk` and `storage_class` as separate specifications
 
@@ -74,12 +74,15 @@ This proposal introduces a new `InstanceType` resource that defines pre-configur
 
 All instance types in Phase 1 are globally scoped:
 * **Created by:** Cloud Provider Admin only
-* **Visible to:** All organizations (when enabled=true)
-* **Hidden from:** Organization Users when enabled=false (Admin can always see all)
+* **Lifecycle states:**
+  - **ACTIVE**: Fully available for new VM creation, no warnings
+  - **DEPRECATED**: Available with warnings on VM creation (e.g., "Instance type 'standard-2-4' is deprecated. Consider using 'standard-2-8' instead.")
+  - **OBSOLETE**: Not available for new VM creation (rejected), still visible for lookups
 
-ListInstanceTypes API behavior:
-* Organization Users: Returns only enabled instance types
-* Cloud Provider Admin: Returns all instance types (enabled + disabled)
+**API behavior by state:**
+* ListInstanceTypes: Returns ACTIVE and DEPRECATED by default; supports filter parameter to include OBSOLETE (e.g., `filter: "state IN (ACTIVE, DEPRECATED, OBSOLETE)"`)
+* GetInstanceType: Returns any instance type regardless of state (for viewing details by name)
+* CreateComputeInstance: ACTIVE succeeds, DEPRECATED succeeds with warning, OBSOLETE is rejected with 409 Conflict
 
 ### Workflow Description
 
@@ -89,21 +92,32 @@ ListInstanceTypes API behavior:
 
 1. Cloud Provider Admin uses the OSAC CLI to create a new global instance type:
    ```bash
-   osac create instance-type standard-4-16 \
+   osac-admin create instance-type standard-4-16 \
      --cores 4 \
      --memory-gib 16 \
      --description "Balanced compute: 4 cores, 16 GiB RAM"
    ```
 2. The Fulfillment Service validates the request and creates the InstanceType resource
-3. The instance type is immediately available (enabled=true by default) to all Organization Users
+3. The instance type is immediately available (state=ACTIVE by default) to all Organization Users
 
-**Disabling an Instance Type**
+**Deprecating an Instance Type**
 
-1. Cloud Provider Admin disables an instance type to prevent new VM creation:
+1. Cloud Provider Admin marks an instance type as deprecated:
    ```bash
-   osac update instance-type standard-4-16 --enabled=false
+   osac-admin update instance-type standard-2-4 --state DEPRECATED --replacement standard-2-8
    ```
-2. The Fulfillment Service updates the InstanceType metadata
+2. The Fulfillment Service updates the InstanceType state
+3. The instance type remains visible in ListInstanceTypes for Organization Users
+4. New VM creation requests succeed but return a warning: "Instance type 'standard-2-4' is deprecated. Consider using 'standard-2-8' instead."
+5. Existing VMs continue to run unchanged
+
+**Obsoleting an Instance Type**
+
+1. Cloud Provider Admin marks an instance type as obsolete to prevent new VM creation:
+   ```bash
+   osac-admin update instance-type standard-2-4 --state OBSOLETE
+   ```
+2. The Fulfillment Service updates the InstanceType state
 3. The instance type is hidden from ListInstanceTypes for Organization Users
 4. Existing VMs using this instance type continue to run unchanged
 5. New VM creation requests with this instance type are rejected
@@ -112,10 +126,10 @@ ListInstanceTypes API behavior:
 
 1. Cloud Provider Admin attempts to delete an instance type:
    ```bash
-   osac delete instance-type standard-4-16
+   osac-admin delete instance-type standard-4-16
    ```
 2. The Fulfillment Service checks if any VMs reference this instance type
-3. If in use: deletion is rejected with an error listing affected VMs
+3. If in use: deletion is rejected with error "instance type is in use by at least one VM"
 4. If not in use: deletion succeeds
 
 #### VM Creation (Organization User)
@@ -126,7 +140,7 @@ ListInstanceTypes API behavior:
    ```bash
    osac list instance-types
    ```
-2. The Fulfillment Service returns only enabled instance types:
+2. The Fulfillment Service returns ACTIVE and DEPRECATED instance types (OBSOLETE types can be included via filter parameter):
    ```json
    {
      "items": [
@@ -136,7 +150,8 @@ ListInstanceTypes API behavior:
          "cores": 2,
          "memory_gib": 4,
          "description": "Small balanced compute",
-         "enabled": true
+         "state": "DEPRECATED",
+         "replacement": "standard-2-8"
        },
        {
          "id": "standard-4-16",
@@ -144,7 +159,7 @@ ListInstanceTypes API behavior:
          "cores": 4,
          "memory_gib": 16,
          "description": "Medium balanced compute",
-         "enabled": true
+         "state": "ACTIVE"
        }
      ]
    }
@@ -160,17 +175,18 @@ ListInstanceTypes API behavior:
      --image quay.io/fedora/fedora:40
    ```
 2. The Fulfillment Service validates and resolves:
-   - Instance type "standard-4-16" exists and is enabled
+   - Instance type "standard-4-16" exists and state is ACTIVE or DEPRECATED
    - User has appropriate permissions
    - Resolves instance type to cores=4, memory_gib=16
+   - If state is DEPRECATED, includes warning in response
 3. The Fulfillment Service creates the ComputeInstance CR with expanded values:
    ```yaml
    apiVersion: osac.openshift.io/v1alpha1
    kind: ComputeInstance
    metadata:
      name: my-vm
-     annotations:
-       osac.io/instance-type: "standard-4-16"  # Audit trail
+     labels:
+       osac.io/instance-type-name: "standard-4-16"  # Audit trail
    spec:
      cores: 4              # Expanded from instance type
      memory_gib: 16        # Expanded from instance type
@@ -192,10 +208,10 @@ $ osac create compute-instance my-vm --instance-type nonexistent
 Error: instance type "nonexistent" not found
 ```
 
-**Disabled instance type:**
+**OBSOLETE instance type:**
 ```bash
 $ osac create compute-instance my-vm --instance-type old-type
-Error: instance type "old-type" is not available (disabled)
+Error: instance type "old-type" is obsolete and cannot be used for new VMs
 ```
 
 **Missing instance type:**
@@ -221,9 +237,10 @@ This enhancement modifies existing OSAC APIs and introduces new resources:
 #### Modified Resources
 
 **ComputeInstanceSpec** (proto/public/osac/public/v1/compute_instance_type.proto - API layer only)
-- Add: `instance_type` field (string, required) - reference to InstanceType ID
+- Add: `instance_type` field (string, required) - reference to InstanceType name
 - Remove: `cores` field (optional int32) - replaced by instance_type in API
 - Remove: `memory_gib` field (optional int32) - replaced by instance_type in API
+- Note: fulfillment-service resolves instance_type name to cores/memory_gib when creating the CR
 - Retain: `boot_disk`, `storage_class`, `template`, `image`, `user_data`, `ssh_key`, etc.
 
 Note: The Kubernetes CR schema retains cores/memory_gib fields. The fulfillment-service expands instance_type to these fields when creating the CR. See "Instance Type Resolution Strategy" for details.
@@ -232,16 +249,20 @@ Note: The Kubernetes CR schema retains cores/memory_gib fields. The fulfillment-
 
 **Public API (Organization Users):**
 - CreateComputeInstance: Require instance_type field, reject if missing
-- CreateComputeInstance: Validate instance_type exists and is enabled
+- CreateComputeInstance: Validate instance_type exists and state is ACTIVE or DEPRECATED
+- CreateComputeInstance: If state is DEPRECATED, return warning with replacement suggestion (if set)
+- CreateComputeInstance: If state is OBSOLETE, reject with HTTP 409 Conflict ("instance type is obsolete")
+- CreateComputeInstance: If instance_type not found, reject with HTTP 404 Not Found
 - CreateComputeInstance: Expand instance_type to cores/memory_gib before creating CR
-- CreateComputeInstance: Add osac.io/instance-type annotation to CR
+- CreateComputeInstance: Add osac.io/instance-type-name label to CR
 - UpdateComputeInstance: Reject changes to instance_type field (immutable in Phase 1)
 
 **Private API (Cloud Provider Admin):**
 - CreateInstanceType: Require cores and memory_gib fields
 - CreateInstanceType: Validate cores > 0 and memory_gib > 0
+- CreateInstanceType: Default state to ACTIVE if not specified
 - UpdateInstanceType: Reject changes to cores or memory_gib (immutable)
-- UpdateInstanceType: Allow changes to description and enabled
+- UpdateInstanceType: Allow changes to description, state, and replacement fields
 - DeleteInstanceType: Reject if any ComputeInstances reference this type
 
 #### Deletion Protection
@@ -272,13 +293,14 @@ CREATE TABLE instance_types (
 );
 ```
 
-The `data` JSONB column contains:
+The `data` JSONB column contains the serialized InstanceType protobuf:
 ```json
 {
   "cores": 4,
   "memory_gib": 16,
   "description": "Balanced compute: 4 cores, 16 GiB RAM",
-  "enabled": true
+  "state": "ACTIVE",
+  "replacement": ""
 }
 ```
 
@@ -291,16 +313,17 @@ Instance types are resolved and expanded by fulfillment-service when creating th
 - **Zero changes to osac-operator:** Controller reads cores/memory_gib as it does today
 - **No runtime dependencies:** osac-operator doesn't need to call fulfillment-service API
 - **Enforcement at boundary:** Organization Users access only the fulfillment-service API (not k8s APIs), so instance type validation cannot be bypassed
-- **Audit trail:** Original instance_type name stored in CR annotation
+- **Audit trail:** Original instance_type name stored in CR label
 
 **fulfillment-service flow:**
 1. User creates ComputeInstance via API with `instance_type: "standard-4-16"`
-2. fulfillment-service validates instance type exists and is enabled
-3. fulfillment-service resolves cores=4, memory_gib=16 from InstanceType
-4. fulfillment-service creates ComputeInstance CR with:
+2. fulfillment-service validates instance type exists and state is ACTIVE or DEPRECATED
+3. If state is DEPRECATED, add warning to response
+4. fulfillment-service resolves cores=4, memory_gib=16 from InstanceType
+5. fulfillment-service creates ComputeInstance CR with:
    - `spec.cores: 4`
    - `spec.memory_gib: 16`
-   - `metadata.annotations["osac.io/instance-type"]: "standard-4-16"` (audit trail)
+   - `metadata.labels["osac.io/instance-type-name"]: "standard-4-16"` (audit trail)
 
 **osac-operator reconciliation (unchanged):**
 1. Read ComputeInstance.spec.cores and spec.memory_gib
@@ -311,7 +334,7 @@ Instance types are resolved and expanded by fulfillment-service when creating th
 
 Changing instance types is blocked in Phase 1 (spec.cores and spec.memory_gib are immutable). In the future, we could support instance type updates by:
 1. Allowing updates to cores/memory_gib fields
-2. Updating the `osac.io/instance-type` annotation
+2. Updating the `osac.io/instance-type-name` label
 3. Triggering VM resize (if supported by underlying platform)
 
 Advanced OpenShift Virtualization features (NUMA topology, hugepages, CPU pinning) remain internal implementation details and are not exposed to Organization Users through the instance type API.
@@ -323,25 +346,34 @@ Advanced OpenShift Virtualization features (NUMA topology, hugepages, CPU pinnin
 - `PrivateInstanceTypesServer` (private) - full CRUD using GenericServer pattern
 - Both servers in `internal/servers/instance_types_server.go` and `private_instance_types_server.go`
 
-**Authorization:**
-- CreateInstanceType: Requires Cloud Provider Admin role
-- ListInstanceTypes (public): Filters to enabled=true, global scope only
-- GetInstanceType (public): Returns only if enabled=true
-- ListInstanceTypes (private): Returns all instance types
-- UpdateInstanceType: Requires Cloud Provider Admin role
-- DeleteInstanceType: Requires Cloud Provider Admin role, rejects if references exist
+**Authorization and scoping:**
+
+Instance type APIs follow the standard fulfillment-service authentication, authorization, and tenant-scoping policy. Instance-type-specific deltas:
+
+- **Global scope:** All instance types are globally scoped (no tenant filtering)
+- **Admin-only write:** CreateInstanceType, UpdateInstanceType, DeleteInstanceType require Cloud Provider Admin role
+- **State-based filtering:** ListInstanceTypes returns ACTIVE and DEPRECATED by default (use filter parameter for OBSOLETE)
+- **Deletion protection:** DeleteInstanceType rejects if any ComputeInstances reference the type (API-layer query check)
 
 #### Proto Definition Sketch
 
 ```proto
 // proto/public/osac/public/v1/instance_type_type.proto
+enum InstanceTypeState {
+  INSTANCE_TYPE_STATE_UNSPECIFIED = 0;
+  ACTIVE = 1;       // Fully available for new VM creation
+  DEPRECATED = 2;   // Available with warnings, migration recommended
+  OBSOLETE = 3;     // Not available for new VMs, visible for lookups only
+}
+
 message InstanceType {
   string id = 1;
   Metadata metadata = 2;
   int32 cores = 3;
   int32 memory_gib = 4;
   string description = 5;
-  bool enabled = 6;
+  InstanceTypeState state = 6;
+  string replacement = 7;  // Optional: suggested replacement instance type (when DEPRECATED)
 }
 
 // proto/public/osac/public/v1/instance_types_service.proto
@@ -401,8 +433,8 @@ message ComputeInstanceSpec {
 apiVersion: osac.openshift.io/v1alpha1
 kind: ComputeInstance
 metadata:
-  annotations:
-    osac.io/instance-type: "standard-4-16"  # Audit trail
+  labels:
+    osac.io/instance-type-name: "standard-4-16"  # Audit trail
 spec:
   template: "..."
   cores: 4              # Expanded from instance type
@@ -412,7 +444,7 @@ spec:
   # ... other fields unchanged
 ```
 
-The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-operator requires no modifications. The instance_type field exists only in the API layer and is stored as an annotation in the CR.
+The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-operator requires no modifications. The instance_type field exists only in the API layer and is stored as a label in the CR.
 
 ### Risks and Mitigations
 
@@ -481,18 +513,19 @@ The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-op
 **Unit Tests:**
 - InstanceType CRUD operations via GenericServer
 - ComputeInstance validation rejects missing instance_type
-- ComputeInstance validation rejects disabled instance_type
+- ComputeInstance validation rejects OBSOLETE instance_type
 - ComputeInstance validation rejects non-existent instance_type
+- ComputeInstance with DEPRECATED instance_type succeeds with warning
+- InstanceType state transitions (ACTIVE → DEPRECATED → OBSOLETE)
 - InstanceType deletion rejected when VMs reference it
 - InstanceType cores/memory_gib immutability enforcement
-- Public API filters instance types to enabled=true only
-- Private API returns all instance types regardless of enabled status
+- ListInstanceTypes filter behavior (default excludes OBSOLETE, filter includes it)
 
 **Integration Tests (fulfillment-service/it/):**
 - Create InstanceType, verify it appears in ListInstanceTypes
 - Create ComputeInstance with valid instance_type, verify VM provisions with correct resources
-- Attempt to create ComputeInstance with disabled instance_type, verify rejection
-- Disable InstanceType, verify it disappears from org user ListInstanceTypes
+- Attempt to create ComputeInstance with OBSOLETE instance_type, verify 409 Conflict
+- Set InstanceType to OBSOLETE, verify it disappears from org user ListInstanceTypes
 - Attempt to delete InstanceType with active VMs, verify rejection
 - Delete all VMs, then delete InstanceType, verify success
 - Create VM, update instance_type, verify rejection (immutability)
@@ -503,9 +536,9 @@ The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-op
 - Organization User creates VM using instance type
 - osac-operator provisions KubeVirt VM with correct cores/memory
 - VM reaches Running state
-- Cloud Provider Admin disables instance type
+- Cloud Provider Admin sets instance type to OBSOLETE
 - Organization User no longer sees type in list
-- Attempt to create new VM with disabled type fails
+- Attempt to create new VM with OBSOLETE type fails with 409 Conflict
 - Existing VM continues running
 
 **Migration Testing:**
