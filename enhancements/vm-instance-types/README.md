@@ -60,14 +60,15 @@ This proposal introduces a new `InstanceType` resource that defines pre-configur
 
 **InstanceType** - Provider-defined compute specification
 * Globally scoped, visible to all organizations
-* Immutable compute specs (cores, memory_gib)
+* Identified by name (globally unique, user-specified, e.g., "standard-4-16")
+* Immutable compute specs (cores, memory_gib, name)
 * Mutable metadata (description, state)
 * State lifecycle: ACTIVE → DEPRECATED → OBSOLETE (following GCP deprecation model)
 * Cloud Provider Admin-only creation and management
 
 **ComputeInstance (modified)** - Virtual machine resource
 * Now requires `instance_type` field (string reference to InstanceType name)
-* Removes `cores` and `memory_gib` fields from ComputeInstanceSpec
+* Removes `cores` and `memory_gib` fields from ComputeInstanceSpec (API layer only)
 * Retains `boot_disk` and `storage_class` as separate specifications
 
 ### Scoping and Visibility
@@ -83,6 +84,14 @@ All instance types in Phase 1 are globally scoped:
 * ListInstanceTypes: Returns ACTIVE and DEPRECATED by default; supports filter parameter to include OBSOLETE (e.g., `filter: "state IN (ACTIVE, DEPRECATED, OBSOLETE)"`)
 * GetInstanceType: Returns any instance type regardless of state (for viewing details by name)
 * CreateComputeInstance: ACTIVE succeeds, DEPRECATED succeeds with warning, OBSOLETE is rejected with 409 Conflict
+
+### Naming and Uniqueness
+
+* Instance type names are globally unique across the entire platform
+* Name is the primary identifier for referencing instance types (not an opaque ID)
+* ComputeInstance.spec.instance_type holds the name as a string (e.g., "standard-4-16")
+* Names are immutable after creation to prevent reference breakage
+* Database uses `name` as the primary key
 
 ### Workflow Description
 
@@ -145,7 +154,7 @@ All instance types in Phase 1 are globally scoped:
    {
      "items": [
        {
-         "id": "standard-2-4",
+         "name": "standard-2-4",
          "metadata": { "name": "standard-2-4" },
          "cores": 2,
          "memory_gib": 4,
@@ -154,7 +163,7 @@ All instance types in Phase 1 are globally scoped:
          "replacement": "standard-2-8"
        },
        {
-         "id": "standard-4-16",
+         "name": "standard-4-16",
          "metadata": { "name": "standard-4-16" },
          "cores": 4,
          "memory_gib": 16,
@@ -248,30 +257,31 @@ Note: The Kubernetes CR schema retains cores/memory_gib fields. The fulfillment-
 #### Validation
 
 **Public API (Organization Users):**
-- CreateComputeInstance: Require instance_type field, reject if missing
-- CreateComputeInstance: Validate instance_type exists and state is ACTIVE or DEPRECATED
+- CreateComputeInstance: Require instance_type field (string name), reject if missing
+- CreateComputeInstance: Validate instance_type name exists and state is ACTIVE or DEPRECATED
 - CreateComputeInstance: If state is DEPRECATED, return warning with replacement suggestion (if set)
 - CreateComputeInstance: If state is OBSOLETE, reject with HTTP 409 Conflict ("instance type is obsolete")
-- CreateComputeInstance: If instance_type not found, reject with HTTP 404 Not Found
-- CreateComputeInstance: Expand instance_type to cores/memory_gib before creating CR
+- CreateComputeInstance: If instance_type name not found, reject with HTTP 404 Not Found
+- CreateComputeInstance: Expand instance_type name to cores/memory_gib before creating CR
 - CreateComputeInstance: Add osac.io/instance-type-name label to CR
 - UpdateComputeInstance: Reject changes to instance_type field (immutable in Phase 1)
 
 **Private API (Cloud Provider Admin):**
-- CreateInstanceType: Require cores and memory_gib fields
+- CreateInstanceType: Require name, cores, and memory_gib fields
+- CreateInstanceType: Validate name uniqueness (globally unique across all instance types)
 - CreateInstanceType: Validate cores > 0 and memory_gib > 0
 - CreateInstanceType: Default state to ACTIVE if not specified
-- UpdateInstanceType: Reject changes to cores or memory_gib (immutable)
+- UpdateInstanceType: Reject changes to name, cores, or memory_gib (immutable)
 - UpdateInstanceType: Allow changes to description, state, and replacement fields
-- DeleteInstanceType: Reject if any ComputeInstances reference this type
+- DeleteInstanceType: Reject if any ComputeInstances reference this instance type by name
 
 #### Deletion Protection
 
 **InstanceType deletion checks:**
-- fulfillment-service queries database for ComputeInstances using this instance type
+- fulfillment-service queries database for ComputeInstances using this instance type name (via osac.io/instance-type-name label)
 - If any references exist, deletion is rejected with 409 Conflict
-- Returns list of affected ComputeInstance IDs in error message
-- Deletion succeeds only when no ComputeInstances reference the type
+- Returns list of affected ComputeInstance names in error message
+- Deletion succeeds only when no ComputeInstances reference the instance type name
 
 ### Implementation Details/Notes/Constraints
 
@@ -280,22 +290,28 @@ Note: The Kubernetes CR schema retains cores/memory_gib fields. The fulfillment-
 **instance_types table:**
 ```sql
 CREATE TABLE instance_types (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
+    name TEXT PRIMARY KEY,                  -- User-specified name (globally unique, immutable, e.g., "standard-4-16")
     creation_timestamp TIMESTAMPTZ NOT NULL,
     deletion_timestamp TIMESTAMPTZ,
     finalizers TEXT[],
     creators TEXT[],
-    tenants TEXT[],  -- Empty for global instance types
+    tenants TEXT[],                         -- Empty for global instance types in Phase 1
     labels JSONB,
     annotations JSONB,
-    data JSONB NOT NULL  -- Serialized InstanceType protobuf
+    data JSONB NOT NULL                     -- Serialized InstanceType protobuf
 );
+
+-- Soft-delete support: prevent name reuse while deletion_timestamp is set
+CREATE UNIQUE INDEX instance_types_active_name_idx ON instance_types(name) WHERE deletion_timestamp IS NULL;
 ```
 
 The `data` JSONB column contains the serialized InstanceType protobuf:
 ```json
 {
+  "name": "standard-4-16",
+  "metadata": {
+    "name": "standard-4-16"
+  },
   "cores": 4,
   "memory_gib": 16,
   "description": "Balanced compute: 4 cores, 16 GiB RAM",
@@ -303,6 +319,8 @@ The `data` JSONB column contains the serialized InstanceType protobuf:
   "replacement": ""
 }
 ```
+
+**Note:** The top-level database `name` column (PRIMARY KEY) mirrors `data.name` and `data.metadata.name` for efficient querying and indexing. All three values must be identical for a given InstanceType record.
 
 #### Instance Type Resolution Strategy
 
@@ -316,14 +334,15 @@ Instance types are resolved and expanded by fulfillment-service when creating th
 - **Audit trail:** Original instance_type name stored in CR label
 
 **fulfillment-service flow:**
-1. User creates ComputeInstance via API with `instance_type: "standard-4-16"`
-2. fulfillment-service validates instance type exists and state is ACTIVE or DEPRECATED
-3. If state is DEPRECATED, add warning to response
-4. fulfillment-service resolves cores=4, memory_gib=16 from InstanceType
-5. fulfillment-service creates ComputeInstance CR with:
+1. User creates ComputeInstance via API with `instance_type: "standard-4-16"` (name reference)
+2. fulfillment-service queries database for InstanceType with `name = "standard-4-16"`
+3. fulfillment-service validates instance type exists and state is ACTIVE or DEPRECATED
+4. If state is DEPRECATED, add warning to response
+5. fulfillment-service resolves cores=4, memory_gib=16 from InstanceType record
+6. fulfillment-service creates ComputeInstance CR with:
    - `spec.cores: 4`
    - `spec.memory_gib: 16`
-   - `metadata.labels["osac.io/instance-type-name"]: "standard-4-16"` (audit trail)
+   - `metadata.labels["osac.io/instance-type-name"]: "standard-4-16"` (audit trail and deletion protection lookup)
 
 **osac-operator reconciliation (unchanged):**
 1. Read ComputeInstance.spec.cores and spec.memory_gib
@@ -367,13 +386,13 @@ enum InstanceTypeState {
 }
 
 message InstanceType {
-  string id = 1;
-  Metadata metadata = 2;
-  int32 cores = 3;
-  int32 memory_gib = 4;
-  string description = 5;
-  InstanceTypeState state = 6;
-  string replacement = 7;  // Optional: suggested replacement instance type (when DEPRECATED)
+  string name = 1;                        // Primary identifier (globally unique, immutable, e.g., "standard-4-16")
+  Metadata metadata = 2;                  // Standard metadata (name field matches top-level name)
+  int32 cores = 3;                        // Immutable compute specification
+  int32 memory_gib = 4;                   // Immutable compute specification
+  string description = 5;                 // Mutable descriptive text
+  InstanceTypeState state = 6;            // Mutable lifecycle state
+  string replacement = 7;                 // Optional: suggested replacement instance type name (when DEPRECATED)
 }
 
 // proto/public/osac/public/v1/instance_types_service.proto
@@ -385,7 +404,7 @@ service InstanceTypes {
   }
   rpc Get(GetInstanceTypeRequest) returns (InstanceType) {
     option (google.api.http) = {
-      get: "/api/fulfillment/v1/instance_types/{id}"
+      get: "/api/fulfillment/v1/instance_types/{name}"
     };
   }
 }
@@ -397,6 +416,16 @@ service InstanceTypes {
   rpc Delete(DeleteInstanceTypeRequest) returns (google.protobuf.Empty);
   rpc List(ListInstanceTypesRequest) returns (ListInstanceTypesResponse);
   rpc Get(GetInstanceTypeRequest) returns (InstanceType);
+}
+
+// GetInstanceTypeRequest references by name
+message GetInstanceTypeRequest {
+  string name = 1;  // Instance type name (e.g., "standard-4-16")
+}
+
+// DeleteInstanceTypeRequest references by name
+message DeleteInstanceTypeRequest {
+  string name = 1;  // Instance type name (e.g., "standard-4-16")
 }
 ```
 
