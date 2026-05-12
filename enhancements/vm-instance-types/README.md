@@ -28,7 +28,7 @@ The current ComputeInstance API allows users to specify compute resources (cores
 * As a Organization User, I want to list available instance types with their compute specifications, so that I can choose the right size for my workload.
 * As a Cloud Provider Admin, I want to define global instance types including their compute specifications, so that I can standardize VM offerings and align them with available infrastructure capacity.
 * As a Cloud Provider Admin, I want to enforce governance by requiring instance types for all VM creation, so that I can prevent resource fragmentation and ensure efficient capacity utilization.
-* As a Cloud Provider Admin, I want to control instance type availability by enabling/disabling types globally, so that I can manage which VM sizes are available to tenants without deleting instance type definitions.
+* As a Cloud Provider Admin, I want to control instance type availability by managing lifecycle states (ACTIVE/DEPRECATED/OBSOLETE), so that I can manage which VM sizes are available to tenants without deleting instance type definitions.
 
 ### Goals
 
@@ -482,7 +482,7 @@ The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-op
 
 **Risk: Instance type reference becomes stale if type is deleted**
 - Mitigation: fulfillment-service API checks prevent deletion of InstanceTypes referenced by active VMs
-- Mitigation: Admin must explicitly disable, wait for VMs to be deleted, then delete type
+- Mitigation: Admin must set type to OBSOLETE, wait for VMs to be deleted, then delete type
 
 **Risk: Users need a specific core/memory combination not offered**
 - Mitigation: Document process for requesting new instance types from Cloud Provider Admin
@@ -621,11 +621,11 @@ Not applicable - OSAC is pre-GA. Components should be upgraded together.
 - **Resolution:** Delete and recreate VM via API with valid instance type, or fix database corruption
 - **Prevention:** Only modify instance types via fulfillment-service API, never directly in database
 
-**ComputeInstance creation rejected: "instance type disabled"**
-- **Detection:** API returns 400 Bad Request with message about disabled instance type
-- **Diagnosis:** Cloud Provider Admin disabled the instance type
-- **Resolution:** Re-enable instance type or choose different instance type when creating VM
-- **Prevention:** Communicate instance type lifecycle changes to users before disabling
+**ComputeInstance creation rejected: "instance type is obsolete"**
+- **Detection:** API returns 409 Conflict with message indicating instance type is OBSOLETE
+- **Diagnosis:** Cloud Provider Admin marked the instance type as OBSOLETE
+- **Resolution:** Choose a different instance type (check replacement suggestion if available) or ask admin to change state back to ACTIVE/DEPRECATED
+- **Prevention:** Communicate instance type lifecycle changes (OBSOLETE transitions) to users before making the change
 
 **osac-operator reconciliation failures**
 - **Detection:** Controller logs show errors provisioning VM or invalid spec values
@@ -635,8 +635,8 @@ Not applicable - OSAC is pre-GA. Components should be upgraded together.
 
 **InstanceType cannot be deleted: "referenced by active VMs"**
 - **Detection:** DELETE API call returns 409 Conflict
-- **Diagnosis:** fulfillment-service database query found ComputeInstances using this instance type
-- **Resolution:** Delete all referencing VMs first, then delete instance type. Or disable instance type and delete later.
+- **Diagnosis:** fulfillment-service database query found ComputeInstances using this instance type name
+- **Resolution:** Delete all referencing VMs first, then delete instance type. Or set instance type to OBSOLETE and delete later.
 - **Prevention:** Use List API or query database to find referencing VMs before attempting deletion
 
 ### Disabling / Rollback
