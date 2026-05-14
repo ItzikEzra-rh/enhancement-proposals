@@ -36,7 +36,8 @@ The current ComputeInstance API allows users to specify compute resources (cores
 * Require all ComputeInstance creation to use instance types (strict mode), removing the ability to specify cores and memory individually
 * Support globally-scoped instance types defined and managed by Cloud Provider Admins only
 * Support instance type lifecycle states (ACTIVE → DEPRECATED → OBSOLETE) following GCP deprecation model, allowing graceful migration without deleting type definitions
-* Ensure instance type compute specifications (cores, memory) are immutable after creation to prevent inconsistencies
+* Provide deprecation metadata (timestamps, replacement suggestions) to communicate migration timelines to users
+* Ensure instance type compute specifications (cores, memory, name) are immutable after creation to prevent inconsistencies
 
 ### Non-Goals
 
@@ -51,6 +52,7 @@ The following are explicitly out of scope for Phase 1:
 * Pricing or metering metadata associated with instance types
 * Network bandwidth constraints or network performance tiers
 * Per-organization instance type restrictions
+* Automatic state transitions based on deprecation timestamps (scheduled job to transition DEPRECATED → OBSOLETE)
 
 ## Proposal
 
@@ -62,8 +64,9 @@ This proposal introduces a new `InstanceType` resource that defines pre-configur
 * Globally scoped, visible to all organizations
 * Identified by name (globally unique, user-specified, e.g., "standard-4-16")
 * Immutable compute specs (cores, memory_gib, name)
-* Mutable metadata (description, state)
+* Mutable metadata (description, state, deprecation)
 * State lifecycle: ACTIVE → DEPRECATED → OBSOLETE (following GCP deprecation model)
+* Deprecation metadata includes timestamps and replacement suggestions for migration planning
 * Cloud Provider Admin-only creation and management
 
 **ComputeInstance (modified)** - Virtual machine resource
@@ -111,14 +114,18 @@ All instance types in Phase 1 are globally scoped:
 
 **Deprecating an Instance Type**
 
-1. Cloud Provider Admin marks an instance type as deprecated:
+1. Cloud Provider Admin marks an instance type as deprecated with optional transition timeline:
    ```bash
-   osac-admin update instance-type standard-2-4 --state DEPRECATED --replacement standard-2-8
+   osac-admin update instance-type standard-2-4 \
+     --state DEPRECATED \
+     --replacement standard-2-8 \
+     --obsolete-at 2026-12-31T23:59:59Z
    ```
-2. The Fulfillment Service updates the InstanceType state
+2. The Fulfillment Service updates the InstanceType state and records deprecation metadata (current timestamp as `deprecated`, future timestamp as `obsolete`)
 3. The instance type remains visible in ListInstanceTypes for Organization Users
-4. New VM creation requests succeed but return a warning: "Instance type 'standard-2-4' is deprecated. Consider using 'standard-2-8' instead."
+4. New VM creation requests succeed but return a warning: "Instance type 'standard-2-4' is deprecated and will become obsolete on 2026-12-31. Consider migrating to 'standard-2-8'."
 5. Existing VMs continue to run unchanged
+6. (Future) Scheduled job automatically transitions to OBSOLETE when the `obsolete` timestamp is reached
 
 **Obsoleting an Instance Type**
 
@@ -126,10 +133,10 @@ All instance types in Phase 1 are globally scoped:
    ```bash
    osac-admin update instance-type standard-2-4 --state OBSOLETE
    ```
-2. The Fulfillment Service updates the InstanceType state
-3. The instance type is hidden from ListInstanceTypes for Organization Users
+2. The Fulfillment Service updates the InstanceType state and records obsolete timestamp
+3. The instance type is hidden from ListInstanceTypes for Organization Users (unless explicitly filtered)
 4. Existing VMs using this instance type continue to run unchanged
-5. New VM creation requests with this instance type are rejected
+5. New VM creation requests with this instance type are rejected with 409 Conflict
 
 **Deleting an Instance Type**
 
@@ -160,7 +167,12 @@ All instance types in Phase 1 are globally scoped:
          "memory_gib": 4,
          "description": "Small balanced compute",
          "state": "DEPRECATED",
-         "replacement": "standard-2-8"
+         "deprecation": {
+           "state": "DEPRECATED",
+           "replacement": "standard-2-8",
+           "deprecated": "2026-03-15T10:00:00Z",
+           "obsolete": "2026-12-31T23:59:59Z"
+         }
        },
        {
          "name": "standard-4-16",
@@ -272,7 +284,10 @@ Note: The Kubernetes CR schema retains cores/memory_gib fields. The fulfillment-
 - CreateInstanceType: Validate cores > 0 and memory_gib > 0
 - CreateInstanceType: Default state to ACTIVE if not specified
 - UpdateInstanceType: Reject changes to name, cores, or memory_gib (immutable)
-- UpdateInstanceType: Allow changes to description, state, and replacement fields
+- UpdateInstanceType: Allow changes to description, state, and deprecation fields
+- UpdateInstanceType: When transitioning to DEPRECATED, auto-populate deprecation.deprecated timestamp if not provided
+- UpdateInstanceType: When transitioning to OBSOLETE, auto-populate deprecation.obsolete timestamp if not provided
+- UpdateInstanceType: Validate deprecation.obsolete is in the future when transitioning to DEPRECATED
 - DeleteInstanceType: Reject if any ComputeInstances reference this instance type by name
 
 #### Deletion Protection
@@ -305,7 +320,9 @@ CREATE TABLE instance_types (
 CREATE UNIQUE INDEX instance_types_active_name_idx ON instance_types(name) WHERE deletion_timestamp IS NULL;
 ```
 
-The `data` JSONB column contains the serialized InstanceType protobuf:
+The `data` JSONB column contains the serialized InstanceType protobuf.
+
+Example of an ACTIVE instance type:
 ```json
 {
   "name": "standard-4-16",
@@ -315,8 +332,27 @@ The `data` JSONB column contains the serialized InstanceType protobuf:
   "cores": 4,
   "memory_gib": 16,
   "description": "Balanced compute: 4 cores, 16 GiB RAM",
-  "state": "ACTIVE",
-  "replacement": ""
+  "state": "ACTIVE"
+}
+```
+
+Example of a DEPRECATED instance type with deprecation metadata:
+```json
+{
+  "name": "standard-2-4",
+  "metadata": {
+    "name": "standard-2-4"
+  },
+  "cores": 2,
+  "memory_gib": 4,
+  "description": "Small balanced compute",
+  "state": "DEPRECATED",
+  "deprecation": {
+    "state": "DEPRECATED",
+    "replacement": "standard-2-8",
+    "deprecated": "2026-03-15T10:00:00Z",
+    "obsolete": "2026-12-31T23:59:59Z"
+  }
 }
 ```
 
@@ -385,14 +421,21 @@ enum InstanceTypeState {
   OBSOLETE = 3;     // Not available for new VMs, visible for lookups only
 }
 
+message InstanceTypeDeprecation {
+  InstanceTypeState state = 1;                   // DEPRECATED or OBSOLETE (matches parent InstanceType.state)
+  string replacement = 2;                        // Optional: suggested replacement instance type name
+  google.protobuf.Timestamp deprecated = 3;      // Optional: when deprecation was announced (auto-set on DEPRECATED transition)
+  google.protobuf.Timestamp obsolete = 4;        // Optional: when it becomes/became obsolete (admin-specified or auto-set)
+}
+
 message InstanceType {
-  string name = 1;                        // Primary identifier (globally unique, immutable, e.g., "standard-4-16")
-  Metadata metadata = 2;                  // Standard metadata (name field matches top-level name)
-  int32 cores = 3;                        // Immutable compute specification
-  int32 memory_gib = 4;                   // Immutable compute specification
-  string description = 5;                 // Mutable descriptive text
-  InstanceTypeState state = 6;            // Mutable lifecycle state
-  string replacement = 7;                 // Optional: suggested replacement instance type name (when DEPRECATED)
+  string name = 1;                               // Primary identifier (globally unique, immutable, e.g., "standard-4-16")
+  Metadata metadata = 2;                         // Standard metadata (name field matches top-level name)
+  int32 cores = 3;                               // Immutable compute specification
+  int32 memory_gib = 4;                          // Immutable compute specification
+  string description = 5;                        // Mutable descriptive text
+  InstanceTypeState state = 6;                   // Mutable lifecycle state
+  InstanceTypeDeprecation deprecation = 7;       // Optional: only set when state is DEPRECATED or OBSOLETE
 }
 
 // proto/public/osac/public/v1/instance_types_service.proto
@@ -544,17 +587,24 @@ The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-op
 - ComputeInstance validation rejects missing instance_type
 - ComputeInstance validation rejects OBSOLETE instance_type
 - ComputeInstance validation rejects non-existent instance_type
-- ComputeInstance with DEPRECATED instance_type succeeds with warning
+- ComputeInstance with DEPRECATED instance_type succeeds with warning (includes obsolete timestamp in warning)
 - InstanceType state transitions (ACTIVE → DEPRECATED → OBSOLETE)
+- InstanceType deprecation metadata auto-population (deprecated timestamp on DEPRECATED transition, obsolete timestamp on OBSOLETE transition)
+- InstanceType validation rejects obsolete timestamp in the past when transitioning to DEPRECATED
 - InstanceType deletion rejected when VMs reference it
-- InstanceType cores/memory_gib immutability enforcement
+- InstanceType cores/memory_gib/name immutability enforcement
+- InstanceType deprecation field mutability (replacement, timestamps)
 - ListInstanceTypes filter behavior (default excludes OBSOLETE, filter includes it)
+- ListInstanceTypes returns deprecation metadata for DEPRECATED/OBSOLETE types
 
 **Integration Tests (fulfillment-service/it/):**
 - Create InstanceType, verify it appears in ListInstanceTypes
 - Create ComputeInstance with valid instance_type, verify VM provisions with correct resources
 - Attempt to create ComputeInstance with OBSOLETE instance_type, verify 409 Conflict
+- Set InstanceType to DEPRECATED with future obsolete timestamp, verify warning includes obsolete date
+- Create VM with DEPRECATED instance_type, verify warning message includes deprecation timeline
 - Set InstanceType to OBSOLETE, verify it disappears from org user ListInstanceTypes
+- Verify GetInstanceType returns deprecation metadata for DEPRECATED and OBSOLETE types
 - Attempt to delete InstanceType with active VMs, verify rejection
 - Delete all VMs, then delete InstanceType, verify success
 - Create VM, update instance_type, verify rejection (immutability)
@@ -565,8 +615,11 @@ The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-op
 - Organization User creates VM using instance type
 - osac-operator provisions KubeVirt VM with correct cores/memory
 - VM reaches Running state
+- Cloud Provider Admin sets instance type to DEPRECATED with replacement and future obsolete timestamp
+- Organization User lists instance types and sees DEPRECATED status with deprecation metadata
+- Organization User creates new VM with DEPRECATED type, receives warning with obsolete date
 - Cloud Provider Admin sets instance type to OBSOLETE
-- Organization User no longer sees type in list
+- Organization User no longer sees type in list (unless filtered)
 - Attempt to create new VM with OBSOLETE type fails with 409 Conflict
 - Existing VM continues running
 
