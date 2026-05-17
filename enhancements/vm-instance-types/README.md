@@ -305,7 +305,7 @@ Note: The Kubernetes CR schema retains cores/memory_gib fields. The fulfillment-
 **instance_types table:**
 ```sql
 CREATE TABLE instance_types (
-    name TEXT PRIMARY KEY,                  -- User-specified name (globally unique, immutable, e.g., "standard-4-16")
+    name TEXT PRIMARY KEY,                  -- User-specified name (globally unique, immutable, never reusable, e.g., "standard-4-16")
     creation_timestamp TIMESTAMPTZ NOT NULL,
     deletion_timestamp TIMESTAMPTZ,
     finalizers TEXT[],
@@ -316,8 +316,8 @@ CREATE TABLE instance_types (
     data JSONB NOT NULL                     -- Serialized InstanceType protobuf
 );
 
--- Soft-delete support: prevent name reuse while deletion_timestamp is set
-CREATE UNIQUE INDEX instance_types_active_name_idx ON instance_types(name) WHERE deletion_timestamp IS NULL;
+-- No additional unique index needed: PRIMARY KEY on name enforces uniqueness for all rows (active and soft-deleted)
+-- Instance type names are never reusable, even after soft deletion
 ```
 
 The `data` JSONB column contains the serialized InstanceType protobuf.
