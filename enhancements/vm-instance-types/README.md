@@ -3,7 +3,7 @@ title: vm-instance-types
 authors:
   - atraeger@redhat.com
 creation-date: 2026-05-06
-last-updated: 2026-05-06
+last-updated: 2026-05-17
 tracking-link:
   - https://redhat.atlassian.net/browse/OSAC-46
 see-also:
