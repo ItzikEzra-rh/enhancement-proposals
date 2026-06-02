@@ -35,7 +35,7 @@ The current ComputeInstance API allows users to specify compute resources (cores
 * Provide a self-service API for Organization Users to list available instance types and create VMs using instance type names
 * Require all ComputeInstance creation to use instance types (strict mode), removing the ability to specify cores and memory individually
 * Support globally-scoped instance types defined and managed by Cloud Provider Admins only
-* Support instance type lifecycle states (ACTIVE → DEPRECATED → OBSOLETE) following GCP deprecation model, allowing graceful migration without deleting type definitions
+* Support instance type lifecycle states (ACTIVE ↔ DEPRECATED ↔ OBSOLETE) with bidirectional transitions, allowing graceful deprecation and reactivation
 * Provide deprecation metadata (timestamps, replacement suggestions) to communicate migration timelines to users
 * Ensure instance type compute specifications (cores, memory, name) are immutable after creation to prevent inconsistencies
 
@@ -65,7 +65,7 @@ This proposal introduces a new `InstanceType` resource that defines pre-configur
 * Identified by name (globally unique, user-specified, e.g., "standard-4-16")
 * Immutable compute specs (cores, memory_gib, name)
 * Mutable metadata (description, state, deprecation)
-* State lifecycle: ACTIVE → DEPRECATED → OBSOLETE (following GCP deprecation model)
+* State lifecycle: ACTIVE ↔ DEPRECATED ↔ OBSOLETE (bidirectional transitions supported)
 * Deprecation metadata includes timestamps and replacement suggestions for migration planning
 * Cloud Provider Admin-only creation and management
 
@@ -137,6 +137,16 @@ All instance types in Phase 1 are globally scoped:
 3. The instance type is hidden from ListInstanceTypes for Organization Users (unless explicitly filtered)
 4. Existing VMs using this instance type continue to run unchanged
 5. New VM creation requests with this instance type are rejected with 409 Conflict
+
+**Reactivating an Instance Type**
+
+1. Cloud Provider Admin restores a deprecated or obsolete instance type:
+   ```bash
+   osac-admin update instance-type standard-2-4 --state ACTIVE
+   ```
+2. The Fulfillment Service updates the InstanceType state to ACTIVE
+3. The instance type becomes available for new VM creation again without warnings
+4. Deprecation metadata (timestamps, replacement) is retained for historical reference
 
 **Deleting an Instance Type**
 
@@ -607,7 +617,7 @@ The CR retains cores/memory_gib fields in spec (unchanged from today) so osac-op
 - ComputeInstance validation rejects OBSOLETE instance_type
 - ComputeInstance validation rejects non-existent instance_type
 - ComputeInstance with DEPRECATED instance_type succeeds with warning (includes obsolete timestamp in warning)
-- InstanceType state transitions (ACTIVE → DEPRECATED → OBSOLETE)
+- InstanceType state transitions (ACTIVE ↔ DEPRECATED ↔ OBSOLETE, including reactivation)
 - InstanceType deprecation metadata auto-population (deprecated timestamp on DEPRECATED transition, obsolete timestamp on OBSOLETE transition)
 - InstanceType validation rejects obsolete timestamp in the past when transitioning to DEPRECATED
 - InstanceType deletion rejected when VMs reference it
