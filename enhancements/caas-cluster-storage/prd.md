@@ -45,3 +45,4 @@ CaaS tenant clusters are provisioned without persistent storage. When a tenant's
 
 - **Tenant Storage Onboarding:** Provides the storage automation framework that CaaS cluster storage builds on.
 - **Storage provider CaaS support:** The storage provider must accept CaaS clusters as a target. Required for end-to-end functionality.
+
