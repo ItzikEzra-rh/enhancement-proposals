@@ -1,4 +1,5 @@
 # StorageBackend API
+<!-- test: OSAC-2067 slash command validation -->
 
 | Field       | Value   |
 |-------------|---------|
