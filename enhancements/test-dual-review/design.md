@@ -25,3 +25,6 @@ The system uses an event-driven model for inter-component communication.
 - Unit tests for storage layer
 - Integration tests for API endpoints
 - E2e tests for full review flow
+
+## Updated Design
+New design considerations.
