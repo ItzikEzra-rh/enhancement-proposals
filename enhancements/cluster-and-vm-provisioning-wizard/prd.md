@@ -253,3 +253,5 @@ Not in [§2.1.1](#211-static-wizard-fields) today. **Unknown** whether v1 needs 
 | **Yes** | Add repeatable `size_gib` rows on Configuration; add to §2.1.1 |
 
 <!-- cost-tracking-test: OSAC-2028 -->
+
+<!-- cost-tracking-test-v2: OSAC-2028 -->

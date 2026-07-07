@@ -211,3 +211,5 @@ No server writes until create succeeds.
 - Manual: end-to-end VM and cluster provision via `/vms/create` and `/clusters/create`; cluster catalog item whose template has empty `node_sets` (warning shown, wizard completable); submit with optional fields left blank.
 
 <!-- cost-tracking-test: OSAC-2028 -->
+
+<!-- cost-tracking-test-v2: OSAC-2028 -->
