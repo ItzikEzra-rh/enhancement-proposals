@@ -251,3 +251,5 @@ Not in [§2.1.1](#211-static-wizard-fields) today. **Unknown** whether v1 needs 
 | ------ | ------- |
 | **No (default)** | Out of scope ([§1.2](#12-non-goals)); boot disk only |
 | **Yes** | Add repeatable `size_gib` rows on Configuration; add to §2.1.1 |
+
+<!-- cost-tracking-test: OSAC-2028 -->
