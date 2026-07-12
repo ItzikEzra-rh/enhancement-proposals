@@ -60,3 +60,12 @@ Credentials across OSAC services — cluster kubeconfigs, identity provider secr
 ## Dependencies
 
 - **Vault-compatible secret store** — the cloud provider deploys and operates a Vault-compatible secret store and provides OSAC access to use it.
+
+---
+
+## Provenance
+
+Authored: draft @ prd 0.5.0 - 39b0d18, workspace main @ 00e78b8f
+Phases: draft, revise, respond
+
+<!-- ai-workflow-provenance:{"schema_version":1,"provenance_kind":"session","workflow":"prd","phases":["draft","revise","respond"],"workflow_version":"0.5.0","workflow_hash":"39b0d18","workspace_branch":"main","workspace_hash":"00e78b8f"} -->
