@@ -231,6 +231,13 @@ def main():
 
     print(f"  Creating PR with TestPlan.md...")
     ep_repo = Path(EP_REPO_PATH)
+    # Delete remote branch if it exists from a previous run
+    subprocess.run(["git", "-C", str(ep_repo), "push", "origin",
+                    "--delete", branch_name],
+                   capture_output=True)
+    # Delete local branch if it exists
+    subprocess.run(["git", "-C", str(ep_repo), "branch", "-D", branch_name],
+                   capture_output=True)
     subprocess.run(["git", "-C", str(ep_repo), "checkout", "-b", branch_name],
                    check=True)
     target_path.parent.mkdir(parents=True, exist_ok=True)
