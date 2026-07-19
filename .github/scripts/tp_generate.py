@@ -183,12 +183,24 @@ def main():
     skill_path = "skills/test-plan-create/SKILL.md"
     ticket_key = f"TP-{pr_number}"
 
-    # Work dir is inside the workspace so the agent has full context
+    # Work dir gets mounted as /workspace/ inside the container.
+    # Copy skills + all component repos into it so the agent has everything.
     work_dir = Path(WORKSPACE_PATH) / f"workdir-{skill_name}"
     if work_dir.exists():
         shutil.rmtree(work_dir)
     shutil.copytree(SKILLS_PATH, work_dir,
                     ignore=shutil.ignore_patterns('.git'))
+
+    # Copy component repos into work_dir so they're visible inside container
+    ws = Path(WORKSPACE_PATH)
+    for repo_dir in ws.iterdir():
+        if repo_dir.is_dir() and (repo_dir / ".git").exists() and repo_dir.name != work_dir.name:
+            dest = work_dir / repo_dir.name
+            if not dest.exists():
+                print(f"  Copying {repo_dir.name}/ into work_dir...")
+                shutil.copytree(repo_dir, dest,
+                                ignore=shutil.ignore_patterns('.git'),
+                                symlinks=True)
 
     print(f"\nRunning {skill_name} from {WORKSPACE_PATH}...")
     try:
