@@ -231,26 +231,45 @@ def main():
 
     print(f"  Creating PR with TestPlan.md...")
     ep_repo = Path(EP_REPO_PATH)
-    # Delete remote branch if it exists from a previous run
-    subprocess.run(["git", "-C", str(ep_repo), "push", "origin",
-                    "--delete", branch_name],
-                   capture_output=True)
-    # Delete local branch if it exists
-    subprocess.run(["git", "-C", str(ep_repo), "branch", "-D", branch_name],
-                   capture_output=True)
-    subprocess.run(["git", "-C", str(ep_repo), "checkout", "-b", branch_name],
-                   check=True)
+
+    def git(*args):
+        result = subprocess.run(
+            ["git", "-C", str(ep_repo)] + list(args),
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  git {' '.join(args[:3])}: {result.stderr.strip()}")
+        return result.returncode
+
+    # Configure git identity for commits
+    git("config", "user.email", "test-plan-bot@osac.openshift.io")
+    git("config", "user.name", "Test Plan Bot")
+
+    # Delete remote/local branch if exists from previous run
+    git("push", "origin", "--delete", branch_name)
+    git("branch", "-D", branch_name)
+
+    rc = git("checkout", "-b", branch_name)
+    if rc != 0:
+        print("  Failed to create branch — aborting PR creation")
+        return
+
     target_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(output_file, target_path)
-    subprocess.run(["git", "-C", str(ep_repo), "add", str(target_path)],
-                   check=True)
-    subprocess.run(["git", "-C", str(ep_repo), "commit", "-m",
-                    f"Add test plan for {ep_slug}\n\n"
-                    f"Generated from PR #{pr_number}\n\n"
-                    "Assisted-by: Claude Code <noreply@anthropic.com>"],
-                   check=True)
-    subprocess.run(["git", "-C", str(ep_repo), "push", "origin", branch_name],
-                   check=True)
+    git("add", str(target_path))
+
+    rc = git("commit", "-m",
+             f"Add test plan for {ep_slug}\n\n"
+             f"Generated from PR #{pr_number}\n\n"
+             "Assisted-by: Claude Code <noreply@anthropic.com>")
+    if rc != 0:
+        print("  Failed to commit — aborting PR creation")
+        return
+
+    rc = git("push", "origin", branch_name)
+    if rc != 0:
+        print("  Failed to push — aborting PR creation")
+        return
     gh(["pr", "create", "--repo", REPO,
         "--head", branch_name, "--base", "main",
         "--title", pr_title,
