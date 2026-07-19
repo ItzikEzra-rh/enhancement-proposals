@@ -3,6 +3,7 @@ title: storage-tier-api
 authors:
   - rgolan@redhat.com
 creation-date: 2026-06-24
+last-updated: 2026-07-19
 last-updated: 2026-07-01
 tracking-link:
   - https://redhat.atlassian.net/browse/OSAC-1110
