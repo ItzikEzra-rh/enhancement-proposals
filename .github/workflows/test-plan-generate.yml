@@ -165,7 +165,8 @@ jobs:
           git config user.email "test-plan-bot@osac.openshift.io"
           git config user.name "Test Plan Bot"
 
-          # Clean up any existing branch
+          # Ensure we're on main before branch operations
+          git checkout main 2>/dev/null || git checkout -f HEAD
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git branch -D "$BRANCH" 2>/dev/null || true
 
