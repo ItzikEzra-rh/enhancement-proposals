@@ -191,6 +191,9 @@ def main():
     shutil.copytree(SKILLS_PATH, work_dir,
                     ignore=shutil.ignore_patterns('.git'))
 
+    # Write EP slug for the PR creation step to read
+    (work_dir / "ep-slug.txt").write_text(ep_slug)
+
     # Copy component repos into work_dir so they're visible inside container
     ws = Path(WORKSPACE_PATH)
     for repo_dir in ws.iterdir():
