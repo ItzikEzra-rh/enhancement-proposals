@@ -301,13 +301,13 @@ class TestPlanHooks:
             "- Preconditions, numbered steps, expected results\n"
             "- Implementation references to REAL test files and fixtures\n"
             "- Traces to a specific EP requirement\n\n"
-            "Score your own output against .context/scoring-rubric.md before "
-            "finalizing — aim for 8+/10.\n\n"
             "Write the generated test plan to testplan-output.md in your "
             "working directory. This file will be committed as TestPlan.md "
             "in the same EP directory alongside design.md and prd.md.\n\n"
             "Include YAML frontmatter with ep_slug, ep_title, and empty "
-            "score fields (they will be filled by the scoring action)."
+            "score fields (scoring is a separate process).\n\n"
+            "Do NOT score the plan yourself. Do NOT write verdict.json. "
+            "Just generate the test plan — scoring happens separately."
         )
 
     def _score_prompt(self):
@@ -366,9 +366,15 @@ class TestPlanHooks:
     def load_verdict(self, work_dir):
         verdict_path = Path(work_dir) / "verdict.json"
         if not verdict_path.exists():
+            skill = self._mode or "unknown"
+            if skill == "generate":
+                return {"generated": True, "verdict": "generated"}
             raise FileNotFoundError(f"verdict.json not found in {work_dir}")
         with open(verdict_path) as f:
             verdict = json.load(f)
+        if skill_name := (self._mode or ""):
+            if skill_name == "generate":
+                return verdict
         if "scores" not in verdict or "verdict" not in verdict:
             raise ValueError("verdict.json missing required fields")
         return verdict
