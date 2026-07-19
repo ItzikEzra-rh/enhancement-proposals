@@ -46,6 +46,10 @@ class TestPlanHooks:
         self.scored_label = scored_label
         self.workspace_path = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         self.ep_repo_path = ep_repo_path or os.environ.get("EP_REPO_PATH", "enhancement-proposals")
+        self._mode = None
+
+    def set_mode(self, mode):
+        self._mode = mode
 
     def _gh(self, args, check=False):
         result = subprocess.run(
