@@ -36,12 +36,16 @@ CONTEXT_FILES = [
 class TestPlanHooks:
     def __init__(self, repo, skills_path, shadow=False,
                  bot_login="github-actions[bot]",
-                 scored_label="test-plan-scored"):
+                 scored_label="test-plan-scored",
+                 workspace_path=None,
+                 ep_repo_path=None):
         self.repo = repo
         self.skills_path = skills_path
         self.shadow = shadow
         self.bot_login = bot_login
         self.scored_label = scored_label
+        self.workspace_path = workspace_path or os.environ.get("WORKSPACE_PATH", "")
+        self.ep_repo_path = ep_repo_path or os.environ.get("EP_REPO_PATH", "enhancement-proposals")
 
     def _gh(self, args, check=False):
         result = subprocess.run(
@@ -109,20 +113,23 @@ class TestPlanHooks:
         diff = self._gh(["pr", "diff", pr_number, "--repo", self.repo])
         (context_dir / "pr-diff.txt").write_text(diff)
 
+        # Copy design + PRD from the EP repo (cloned separately)
         ep_slug = ticket.get("_ep_slug", "")
-        if ep_slug:
+        ep_base = Path(self.ep_repo_path) / "enhancements" / ep_slug if ep_slug else None
+        if ep_base and ep_base.exists():
             for name in ("README.md", "design.md", "DESIGN.md", "Design.md"):
-                design_path = Path(f"enhancements/{ep_slug}/{name}")
+                design_path = ep_base / name
                 if design_path.exists():
                     (context_dir / "design.md").write_text(
                         design_path.read_text()
                     )
                     break
 
-            prd_path = Path(f"enhancements/{ep_slug}/prd.md")
+            prd_path = ep_base / "prd.md"
             if prd_path.exists():
                 (context_dir / "prd.md").write_text(prd_path.read_text())
 
+        # Copy skills context files (rubric, templates, test strategy)
         for relpath in CONTEXT_FILES:
             src = Path(self.skills_path) / relpath
             if src.exists():
@@ -132,6 +139,27 @@ class TestPlanHooks:
         skill_file = Path(self.skills_path) / "skills/test-plan-create/SKILL.md"
         if skill_file.exists():
             (context_dir / "skill-prompt.md").write_text(skill_file.read_text())
+
+        # Copy workspace context (architecture, dimensions, testing patterns)
+        ws = Path(self.workspace_path) if self.workspace_path else None
+        if ws and ws.exists():
+            ws_context_files = [
+                (".design/context/osac-dimensions.md", "osac-dimensions.md"),
+                (".planning/codebase/ARCHITECTURE.md", "ARCHITECTURE.md"),
+                (".planning/codebase/TESTING.md", "TESTING.md"),
+            ]
+            for src_rel, dest_name in ws_context_files:
+                src = ws / src_rel
+                if src.exists():
+                    (context_dir / dest_name).write_text(src.read_text())
+
+            # Write workspace manifest so the agent knows what's available
+            repos = [d.name for d in ws.iterdir()
+                     if d.is_dir() and (d / ".git").exists()]
+            (context_dir / "workspace-repos.txt").write_text(
+                "Available component repos in workspace:\n" +
+                "\n".join(f"  {r}/" for r in sorted(repos))
+            )
 
         (context_dir / "pr-meta.json").write_text(
             json.dumps(ticket, indent=2, default=str)
@@ -241,22 +269,39 @@ class TestPlanHooks:
     def _generate_prompt(self):
         return (
             PROMPT_INJECTION_BOUNDARY
-            + "Generate a test plan from the EP design document.\n\n"
-            "Read the design document in .context/design.md (or extract it "
-            "from .context/pr-diff.txt if design.md is not present).\n\n"
-            "Use these context files to ground your output:\n"
+            + "Generate a detailed test plan from the EP design document.\n\n"
+            "You are running from an osac-workspace directory with ALL component "
+            "repos cloned (fulfillment-service, osac-operator, osac-test-infra, "
+            "osac-aap, etc.). Use them to ground your test plan in real code.\n\n"
+            "Read these context files FIRST:\n"
+            "- .context/design.md — the EP design document (primary input)\n"
+            "- .context/prd.md — PRD requirements (if available)\n"
             "- .context/osac-test-strategy.md — test pyramid, framework "
             "conventions, quality gates\n"
             "- .context/osac-test-infra-reference.md — real client methods, "
             "fixtures, test file index\n"
             "- .context/osac-operator-test-patterns.md — envtest setup, mock "
-            "patterns, assertion patterns\n\n"
+            "patterns, assertion patterns\n"
+            "- .context/ARCHITECTURE.md — system architecture\n"
+            "- .context/osac-dimensions.md — services, personas, cross-cutting "
+            "dimensions\n"
+            "- .context/workspace-repos.txt — available component repos\n\n"
+            "IMPORTANT: Browse the actual component repos in the workspace to "
+            "find real test files, real fixtures, and real code patterns. "
+            "For example, read osac-test-infra/tests/ to find reference tests, "
+            "or osac-operator/internal/controller/ to find controller test "
+            "patterns. Reference REAL file paths in your test scenarios.\n\n"
             "Follow the template in .context/test-plan-template.md exactly.\n"
+            "Every test scenario must have a FULL detailed description with:\n"
+            "- Unique ID (TS-001, TS-002, etc.)\n"
+            "- Preconditions, numbered steps, expected results\n"
+            "- Implementation references to REAL test files and fixtures\n"
+            "- Traces to a specific EP requirement\n\n"
             "Score your own output against .context/scoring-rubric.md before "
             "finalizing — aim for 8+/10.\n\n"
             "Write the generated test plan to testplan-output.md in your "
             "working directory. This file will be committed as TestPlan.md "
-            "in the EP directory.\n\n"
+            "in the same EP directory alongside design.md and prd.md.\n\n"
             "Include YAML frontmatter with ep_slug, ep_title, and empty "
             "score fields (they will be filled by the scoring action)."
         )

@@ -2,8 +2,9 @@
 """
 Test Plan Generate — GitHub Action entry point.
 
+Runs from osac-workspace (after bootstrap.sh clones all component repos).
 Detects which EP had a design document merged, generates a TestPlan.md
-via agentic-ci, and opens a new PR with the test plan.
+via agentic-ci with full workspace context, and opens a new PR.
 """
 
 import json
@@ -14,13 +15,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.environ.get("EP_REPO_PATH", ".") + "/.github/scripts")
+
 from tp_hooks import TestPlanHooks
 from tp_skill_config import build_skill_config
 
 
 REPO = os.environ.get("GITHUB_REPOSITORY",
                        "ItzikEzra-rh/enhancement-proposals")
-SKILLS_PATH = "/opt/test-plan-skills"
+SKILLS_PATH = os.environ.get("SKILLS_PATH", "/opt/osac-workspace/osac-test-plan")
+WORKSPACE_PATH = os.environ.get("WORKSPACE_PATH", "/opt/osac-workspace")
+EP_REPO_PATH = os.environ.get("EP_REPO_PATH", "enhancement-proposals")
 IN_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 
 
@@ -72,7 +77,7 @@ def run_generate(hooks, skill_name, skill_path, ticket_key, ticket, work_dir):
             config,
             ticket_key=ticket_key,
             work_dir=work_dir,
-            config_dir=Path("."),
+            config_dir=Path(WORKSPACE_PATH),
             mode="resolve",
             ticket=ticket,
         )
@@ -99,7 +104,6 @@ def run_generate(hooks, skill_name, skill_path, ticket_key, ticket, work_dir):
 def main():
     pr_number = os.environ.get("PR_NUMBER")
     head_sha = os.environ.get("PR_HEAD_SHA", "")
-    ep_slug_env = os.environ.get("EP_SLUG", "")
     shadow = os.environ.get("TP_SHADOW", "true").lower() == "true"
 
     if not pr_number:
@@ -107,6 +111,9 @@ def main():
         sys.exit(1)
 
     print(f"Test Plan Generate — PR #{pr_number} (sha: {head_sha[:8]})")
+    print(f"Workspace: {WORKSPACE_PATH}")
+    print(f"EP repo: {EP_REPO_PATH}")
+    print(f"Skills: {SKILLS_PATH}")
     if shadow:
         print("SHADOW MODE: will run but not create PR")
 
@@ -115,7 +122,7 @@ def main():
         print("No files changed")
         return
 
-    ep_slug = ep_slug_env or detect_ep_slug(files)
+    ep_slug = detect_ep_slug(files)
     if not ep_slug:
         print("No EP slug detected from changed files — skipping")
         return
@@ -131,6 +138,19 @@ def main():
 
     print(f"Detected EP: {ep_slug}")
 
+    # Check design and PRD exist in the EP repo
+    ep_dir = Path(EP_REPO_PATH) / "enhancements" / ep_slug
+    design_file = None
+    for name in ["README.md", "design.md", "DESIGN.md"]:
+        candidate = ep_dir / name
+        if candidate.exists():
+            design_file = candidate
+            break
+    prd_file = ep_dir / "prd.md"
+
+    print(f"  Design: {design_file or 'NOT FOUND'}")
+    print(f"  PRD: {prd_file if prd_file.exists() else 'NOT FOUND'}")
+
     pr_raw = gh(["pr", "view", str(pr_number), "--repo", REPO,
                   "--json", "number,title,body,author,labels,headRefOid"])
     if not pr_raw.strip():
@@ -142,7 +162,10 @@ def main():
         repo=REPO,
         skills_path=SKILLS_PATH,
         shadow=shadow,
+        workspace_path=WORKSPACE_PATH,
+        ep_repo_path=EP_REPO_PATH,
     )
+    hooks.set_mode("generate")
 
     ticket = {
         "number": int(pr_number),
@@ -152,19 +175,22 @@ def main():
         "headRefOid": pr.get("headRefOid", head_sha),
         "labels": [l.get("name", "") for l in pr.get("labels", [])],
         "_ep_slug": ep_slug,
+        "_design_file": str(design_file) if design_file else "",
+        "_prd_file": str(prd_file) if prd_file.exists() else "",
     }
 
     skill_name = "test-plan-create"
     skill_path = "skills/test-plan-create/SKILL.md"
     ticket_key = f"TP-{pr_number}"
-    work_dir = Path(f"workdir-{skill_name}")
 
+    # Work dir is inside the workspace so the agent has full context
+    work_dir = Path(WORKSPACE_PATH) / f"workdir-{skill_name}"
     if work_dir.exists():
         shutil.rmtree(work_dir)
     shutil.copytree(SKILLS_PATH, work_dir,
                     ignore=shutil.ignore_patterns('.git'))
 
-    print(f"\nRunning {skill_name}...")
+    print(f"\nRunning {skill_name} from {WORKSPACE_PATH}...")
     try:
         run_generate(hooks, skill_name, skill_path, ticket_key,
                      ticket, work_dir)
