@@ -213,6 +213,46 @@ def main():
         if IN_CI:
             sys.exit(1)
 
+    # Create PR with the generated test plan (outside agentic-ci pipeline)
+    output_file = work_dir / "testplan-output.md"
+    if not output_file.exists():
+        print("No testplan-output.md — skipping PR creation")
+        return
+
+    target_path = Path(EP_REPO_PATH) / "enhancements" / ep_slug / "TestPlan.md"
+    branch_name = f"test-plan/{ep_slug}"
+    pr_title = f"Test Plan: {pr.get('title', ep_slug)}"
+
+    if shadow:
+        print(f"  SHADOW: would create branch '{branch_name}'")
+        print(f"  SHADOW: would write {target_path}")
+        print(f"  SHADOW: would open PR '{pr_title}'")
+        return
+
+    print(f"  Creating PR with TestPlan.md...")
+    ep_repo = Path(EP_REPO_PATH)
+    subprocess.run(["git", "-C", str(ep_repo), "checkout", "-b", branch_name],
+                   check=True)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(output_file, target_path)
+    subprocess.run(["git", "-C", str(ep_repo), "add", str(target_path)],
+                   check=True)
+    subprocess.run(["git", "-C", str(ep_repo), "commit", "-m",
+                    f"Add test plan for {ep_slug}\n\n"
+                    f"Generated from PR #{pr_number}\n\n"
+                    "Assisted-by: Claude Code <noreply@anthropic.com>"],
+                   check=True)
+    subprocess.run(["git", "-C", str(ep_repo), "push", "origin", branch_name],
+                   check=True)
+    gh(["pr", "create", "--repo", REPO,
+        "--head", branch_name, "--base", "main",
+        "--title", pr_title,
+        "--body",
+        f"Auto-generated test plan for `enhancements/{ep_slug}/`.\n\n"
+        f"Source: PR #{pr_number}\n\n"
+        "Review and comment. Type `/test-plan-respond` to trigger AI revision."])
+    print(f"  Created PR on branch {branch_name}")
+
 
 if __name__ == "__main__":
     main()
