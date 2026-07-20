@@ -186,6 +186,40 @@ jobs:
             fi
           done
 
+          # Extract cost from OTEL
+          OTEL_FILE="$WORK_DIR/_run/claude-otel.jsonl"
+          if [ -f "$OTEL_FILE" ]; then
+            COST_INFO=$(python3 - "$OTEL_FILE" << 'PYEOF'
+          import json, sys
+          total_in = total_out = total_cache = api_calls = 0
+          model = ""
+          try:
+            for line in open(sys.argv[1]):
+              obj = json.loads(line)
+              for rl in obj.get("payload",{}).get("resourceLogs",[]):
+                for sl in rl.get("scopeLogs",[]):
+                  for lr in sl.get("logRecords",[]):
+                    attrs = {a["key"]: a["value"].get("stringValue", str(a["value"].get("intValue",""))) for a in lr.get("attributes",[])}
+                    if attrs.get("event.name") == "api_request":
+                      total_in += int(attrs.get("input_tokens","0") or 0)
+                      total_out += int(attrs.get("output_tokens","0") or 0)
+                      total_cache += int(attrs.get("cache_read_tokens","0") or 0)
+                      api_calls += 1
+                      model = attrs.get("model", model)
+          except: pass
+          if api_calls:
+            def fmt(n):
+              return f"{n/1000:.1f}k" if n >= 1000 else str(n)
+            print(f"**Model:** {model}")
+            print(f"**Tokens:** {fmt(total_in)} in / {fmt(total_out)} out / {fmt(total_cache)} cache")
+            print(f"**API calls:** {api_calls}")
+          PYEOF
+          )
+            if [ -n "$COST_INFO" ]; then
+              COMMENT+="\n---\n<details><summary>Review cost</summary>\n\n${COST_INFO}\n</details>\n"
+            fi
+          fi
+
           # Post comment
           echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body-file -
           echo "Posted score comment on PR #$PR_NUMBER"
