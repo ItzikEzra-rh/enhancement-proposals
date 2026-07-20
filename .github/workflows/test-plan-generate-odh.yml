@@ -157,13 +157,22 @@ jobs:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
           EP_REPO: ${{ github.workspace }}/enhancement-proposals
         run: |
-          # Find the generated test plan
-          OUTPUT_DIR="/opt/test-plans/plans/osac"
-          TP_FILE=$(find "$OUTPUT_DIR" -name "TestPlan.md" -type f | head -1)
+          # Find the generated test plan — agent writes inside container at /workspace/
+          # which maps to the work_dir on the host
+          WORK_DIR="/opt/osac-workspace/workdir-odh-test-gen"
+          echo "Searching for TestPlan.md in $WORK_DIR..."
+          TP_FILE=$(find "$WORK_DIR" -name "TestPlan.md" -type f 2>/dev/null | head -1)
 
           if [ -z "$TP_FILE" ]; then
-            # Fallback: check workdir
-            TP_FILE=$(find /opt/osac-workspace/workdir-* -name "testplan-output.md" -type f 2>/dev/null | head -1)
+            # Fallback: any .md file with test plan content
+            TP_FILE=$(find "$WORK_DIR" -name "*.md" -path "*/test-plans/*" -type f 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$TP_FILE" ]; then
+            # Last resort: search everywhere
+            echo "Searching broader..."
+            find "$WORK_DIR" -name "*.md" -type f 2>/dev/null | head -20
+            TP_FILE=$(find "$WORK_DIR" -name "testplan-output.md" -o -name "TestPlan.md" -type f 2>/dev/null | head -1)
           fi
 
           if [ -z "$TP_FILE" ]; then
