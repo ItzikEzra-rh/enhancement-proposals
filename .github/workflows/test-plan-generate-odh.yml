@@ -41,7 +41,7 @@ jobs:
           echo "head_sha=$(echo "$PR_JSON" | jq -r .headRefOid)" >> "$GITHUB_OUTPUT"
 
           # Extract EP slug from changed files
-          EP_SLUG=$(echo "$PR_JSON" | jq -r '[.files[].path | capture("enhancements/(?P<s>[^/]+)/") | .s] | first // empty')
+          EP_SLUG=$(echo "$PR_JSON" | jq -r '[.files[].path | select(startswith("enhancements/")) | split("/")[1]] | first // empty')
           echo "ep_slug=$EP_SLUG" >> "$GITHUB_OUTPUT"
 
           # Extract Jira key from comment args (e.g., /test-plan-create-odh OSAC-1123)
