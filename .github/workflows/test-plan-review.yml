@@ -131,7 +131,72 @@ jobs:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
           PR_HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
           MODE: ${{ needs.resolve-pr.outputs.mode }}
-        run: python .github/scripts/tp_review.py
+        run: python .github/scripts/tp_review.py || true
+
+      - name: Post score comment
+        if: needs.resolve-pr.outputs.mode == 'score'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+        run: |
+          WORK_DIR="workdir-test-plan-score"
+          VERDICT="$WORK_DIR/verdict.json"
+          if [ ! -f "$VERDICT" ]; then
+            echo "No verdict.json found — skipping comment"
+            exit 0
+          fi
+
+          VERDICT_STR=$(jq -r '.verdict // "Unknown"' "$VERDICT")
+          TOTAL=$(jq -r '.total // 0' "$VERDICT")
+          SUMMARY=$(jq -r '.summary // ""' "$VERDICT")
+          FEEDBACK=$(jq -r '.feedback // ""' "$VERDICT")
+
+          # Build score table
+          COMMENT="## Test Plan Review\n\n"
+          COMMENT+="<!-- sha:${PR_HEAD_SHA:0:8} -->\n\n"
+          COMMENT+="**Score: ${TOTAL}/10** | **Verdict: ${VERDICT_STR}**\n\n"
+          COMMENT+="| Dimension | Score | Notes |\n"
+          COMMENT+="|-----------|-------|-------|\n"
+
+          for dim in specificity grounding scope_fidelity actionability consistency; do
+            SCORE=$(jq -r ".scores.${dim} // 0" "$VERDICT")
+            NOTE=$(jq -r ".criterionNotes.${dim} // \"\"" "$VERDICT" | tr '|' '/' | tr '\n' ' ' | head -c 200)
+            LABEL=$(echo "$dim" | sed 's/_/ /g' | sed 's/\b\(.\)/\u\1/g')
+            COMMENT+="| ${LABEL} | ${SCORE}/2 | ${NOTE} |\n"
+          done
+
+          if [ -n "$SUMMARY" ]; then
+            COMMENT+="\n**Summary:** ${SUMMARY}\n"
+          fi
+          if [ -n "$FEEDBACK" ]; then
+            COMMENT+="\n**Feedback:** ${FEEDBACK}\n"
+          fi
+
+          # Add findings
+          for severity in critical important suggestions; do
+            COUNT=$(jq -r ".findings.${severity} | length // 0" "$VERDICT")
+            COMMENT+="\n### ${severity^} (${COUNT})\n"
+            if [ "$COUNT" -gt 0 ]; then
+              jq -r ".findings.${severity}[] // empty" "$VERDICT" | while IFS= read -r item; do
+                COMMENT+="- ${item}\n"
+              done
+            else
+              COMMENT+="None.\n"
+            fi
+          done
+
+          # Post comment
+          echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body-file -
+          echo "Posted score comment on PR #$PR_NUMBER"
+
+          # Add labels
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --add-label "test-plan-scored" 2>/dev/null || true
+          if [ "$VERDICT_STR" = "Ready" ]; then
+            gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --add-label "test-plan-ready" 2>/dev/null || true
+          elif [ "$VERDICT_STR" = "Rework" ]; then
+            gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --add-label "test-plan-rubric-fail" 2>/dev/null || true
+          fi
 
       - name: Upload OTEL metrics
         if: always()
