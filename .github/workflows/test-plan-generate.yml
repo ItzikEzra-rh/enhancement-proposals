@@ -149,7 +149,7 @@ jobs:
           else
             # Fallback: detect from PR changed files
             EP_SLUG=$(gh api repos/${{ github.repository }}/pulls/${{ needs.resolve-pr.outputs.pr_number }}/files \
-              --jq '[.[].filename | capture("enhancements/(?P<slug>[^/]+)/") | .slug] | first // empty')
+              --jq '[.[].filename | select(startswith("enhancements/")) | split("/")[1]] | first // empty')
           fi
           if [ -z "$EP_SLUG" ]; then
             echo "Could not detect EP slug"
