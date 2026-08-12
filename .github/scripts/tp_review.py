@@ -47,7 +47,7 @@ def detect_ep_slug_from_files(pr_number):
     raw = gh(["api", f"repos/{REPO}/pulls/{pr_number}/files",
               "--paginate", "--jq", "[.[].filename]"])
     files = json.loads(raw) if raw.strip() else []
-    pattern = re.compile(r"enhancements/([^/]+)/TestPlan\.md")
+    pattern = re.compile(r"enhancements/([^/]+)/(?:TestPlan|testplan)\.md")
     for f in files:
         m = pattern.match(f)
         if m:

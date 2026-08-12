@@ -165,6 +165,14 @@ class TestPlanHooks:
             json.dumps(ticket, indent=2, default=str)
         )
 
+    @staticmethod
+    def _find_testplan(ep_slug):
+        for name in ("testplan.md", "TestPlan.md"):
+            tp = Path(f"enhancements/{ep_slug}/{name}")
+            if tp.exists():
+                return tp
+        return None
+
     def _write_score_context(self, ticket_key, ticket, work_dir):
         context_dir = Path(work_dir) / ".context"
         context_dir.mkdir(parents=True, exist_ok=True)
@@ -175,8 +183,8 @@ class TestPlanHooks:
 
         ep_slug = ticket.get("_ep_slug", "")
         if ep_slug:
-            tp_path = Path(f"enhancements/{ep_slug}/TestPlan.md")
-            if tp_path.exists():
+            tp_path = self._find_testplan(ep_slug)
+            if tp_path:
                 (context_dir / "TestPlan.md").write_text(tp_path.read_text())
 
             for name in ("README.md", "design.md", "DESIGN.md", "Design.md"):
@@ -209,8 +217,8 @@ class TestPlanHooks:
 
         ep_slug = ticket.get("_ep_slug", "")
         if ep_slug:
-            tp_path = Path(f"enhancements/{ep_slug}/TestPlan.md")
-            if tp_path.exists():
+            tp_path = self._find_testplan(ep_slug)
+            if tp_path:
                 (context_dir / "TestPlan.md").write_text(tp_path.read_text())
 
             for name in ("README.md", "design.md", "DESIGN.md", "Design.md"):
@@ -311,6 +319,13 @@ class TestPlanHooks:
             PROMPT_INJECTION_BOUNDARY
             + "Score the test plan in .context/TestPlan.md using the rubric "
             "in .context/scoring-rubric.md.\n\n"
+            "The test plan may be in either format:\n"
+            "- ai-workflows format: TC-IDs grouped by PRD requirement "
+            "(TC-FR1-01), metadata tables (Story/AC/Priority/Automation), "
+            "Preconditions/Steps/Expected Results sections.\n"
+            "- legacy format: TS-IDs, Component Impact tables, Test "
+            "Scenarios sections.\n"
+            "Score both formats identically against the same dimensions.\n\n"
             "Cross-reference against the EP design in .context/design.md for "
             "scope fidelity.\n\n"
             "Score each dimension independently (0-2):\n"

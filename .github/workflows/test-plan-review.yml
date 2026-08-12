@@ -6,6 +6,7 @@ on:
       - 'test-plan/**'
     paths:
       - '**/TestPlan.md'
+      - '**/testplan.md'
 
   issue_comment:
     types: [created]
