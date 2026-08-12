@@ -7,8 +7,13 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7.0.0
-    - uses: actions/setup-python@v5
+    - uses: actions/checkout@v7.0.1
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v7
       with:
         python-version: "3.13"
     - uses: pre-commit/action@v3.0.1
+      env:
+        PRE_COMMIT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PRE_COMMIT_LIVE_BASE_REF: origin/${{ github.event.pull_request.base.ref }}

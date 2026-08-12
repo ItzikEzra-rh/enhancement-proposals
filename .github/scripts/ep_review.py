@@ -9,6 +9,7 @@ structured review comment on the PR.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,22 +38,16 @@ def gh(args):
 
 def get_changed_files(pr_number):
     raw = gh(["api", f"repos/{REPO}/pulls/{pr_number}/files",
-              "--paginate", "--jq", "[.[].filename]"])
-    return json.loads(raw) if raw.strip() else []
-
-
-def get_incremental_files(before_sha, head_sha):
-    raw = gh(["api", f"repos/{REPO}/compare/{before_sha}...{head_sha}",
-              "--jq", "[.files[].filename]"])
-    return json.loads(raw) if raw.strip() else []
+              "--paginate", "--jq", ".[].filename"])
+    return [f for f in raw.splitlines() if f.strip()]
 
 
 def detect_skills(files):
     skills = []
-    has_prd = any(f.lower().endswith("prd.md") for f in files)
-    has_design = any(
-        f.lower().endswith("design.md") or
-        (f.lower().endswith("readme.md") and "enhancements/" in f.lower())
+    basenames = [os.path.basename(f).lower() for f in files]
+    has_prd = "prd.md" in basenames
+    has_design = "design.md" in basenames or any(
+        os.path.basename(f).lower() == "readme.md" and "enhancements/" in f.lower()
         for f in files
     )
 
@@ -61,6 +56,37 @@ def detect_skills(files):
     if has_design:
         skills.append(("design-review", "skills/design-review/SKILL.md"))
     return skills
+
+
+def pr_enhancement_slugs(files):
+    """Extract enhancements/<slug>/ directories touched by this PR."""
+    slugs = set()
+    for f in files:
+        m = re.match(r"enhancements/([^/]+)/", f)
+        if m:
+            slugs.add(m.group(1))
+    return slugs
+
+
+def exclude_own_slug_from_reference_library(work_dir, files):
+    """Remove this PR's own enhancement directory from the staged
+    enhancement-proposals/enhancements/ reference library.
+
+    design-review's "Comparison with Similar Designs" step treats
+    enhancements/ as a library of *merged* designs to calibrate against.
+    If this PR updates an existing enhancement, the pre-PR version of that
+    same document would otherwise sit in the reference library right
+    alongside .context/pr-diff.txt's new version, and could get cited as a
+    "similar past design" — a stale ghost of the very document under
+    review, not a real precedent.
+    """
+    ref_root = Path(work_dir) / "enhancement-proposals" / "enhancements"
+    if not ref_root.exists():
+        return
+    for slug in pr_enhancement_slugs(files):
+        slug_dir = ref_root / slug
+        if slug_dir.exists():
+            shutil.rmtree(slug_dir)
 
 
 def run_review(hooks, skill_name, skill_path, ticket_key, ticket, work_dir):
@@ -119,16 +145,7 @@ def main():
     if shadow:
         print("SHADOW MODE: review will run but no comment will be posted")
 
-    event_name = os.environ.get("EVENT_NAME", "")
-    event_action = os.environ.get("EVENT_ACTION", "")
-    before_sha = os.environ.get("EVENT_BEFORE_SHA", "")
-
-    # For synchronize events, only review files changed in the latest push
-    if event_action == "synchronize" and before_sha and head_sha:
-        files = get_incremental_files(before_sha, head_sha)
-        print(f"Synchronize: checking incremental diff ({before_sha[:8]}..{head_sha[:8]})")
-    else:
-        files = get_changed_files(pr_number)
+    files = get_changed_files(pr_number)
 
     if not files:
         print("No files changed")
@@ -179,6 +196,7 @@ def main():
             shutil.rmtree(work_dir)
         shutil.copytree(SKILLS_PATH, work_dir,
                         ignore=shutil.ignore_patterns('.git'))
+        exclude_own_slug_from_reference_library(work_dir, files)
 
         print(f"\nRunning {skill_name}...")
         try:
