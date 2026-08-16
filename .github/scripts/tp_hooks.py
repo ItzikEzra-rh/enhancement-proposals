@@ -439,13 +439,16 @@ class TestPlanHooks:
 
     def apply_labels(self, ticket_key, verdict, mode, work_dir,
                      rc=None, gate_errors=None, **kw):
-        skill_name = (kw.get("ticket") or {}).get("_skill_name", "")
-        if skill_name == "test-plan-create":
+        skill_name = (kw.get("ticket") or {}).get("_skill_name", "") or mode or ""
+        if skill_name in ("test-plan-create", "generate"):
             self._apply_generate(ticket_key, verdict, work_dir, **kw)
-        elif skill_name == "test-plan-score":
+        elif skill_name in ("test-plan-score", "score", "resolve"):
             self._apply_score(ticket_key, verdict, work_dir, **kw)
-        elif skill_name == "test-plan-review":
+        elif skill_name in ("test-plan-review", "respond"):
             self._apply_respond(ticket_key, verdict, work_dir, **kw)
+        else:
+            print(f"  [{ticket_key}] apply_labels: unknown skill_name={skill_name!r}, mode={mode!r} — falling back to score")
+            self._apply_score(ticket_key, verdict, work_dir, **kw)
 
     def _apply_generate(self, ticket_key, verdict, work_dir, **kw):
         ticket = kw.get("ticket") or {}
