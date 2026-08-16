@@ -705,3 +705,4 @@ No standalone test case — OSAC-2921 dependency. DiskImage uses Metadata fields
 | Requirements without test cases | 1 (NFR-1 — pending OSAC-2921; FR-14 and FR-15 out of scope) |
 
 <!-- scoring trigger -->
+<!-- scoring trigger 1786867288 -->
