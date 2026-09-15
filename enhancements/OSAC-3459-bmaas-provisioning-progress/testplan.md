@@ -2,499 +2,453 @@
 
 ## Overview
 
-- **Feature:** OSAC-3459 — BMaaS Provisioning Progress and Step Visibility
-- **Total test cases:** 15
-- **Requirements covered:** 8 of 8
-- **Interface changes covered:** 6 of 6
+- Feature: BMaaS provisioning progress and terminal outcome visibility.
+- Source inputs: the published PRD, the approved design copied to `03-design.md`, and the fresh `01-context.md`.
+- Scope: behavioral verification of the approved architecture and its existing condition/status interfaces. This plan does not add API or CRD fields.
+- Total test cases: 12.
+- Requirements covered: 8 of 8 referenced IDs (`FR-1` through `FR-5`, `NFR-1` through `NFR-3`).
+- Interface changes covered: 6 of 6 (`IC-1` through `IC-6`).
 
-> The PRD does not use numbered `FR-N`/`NFR-N` IDs. The requirement IDs below are
-> derived from the PRD's In Scope items, User Stories, and Out of Scope
-> constraints, and match the requirement IDs used in `design.md`:
-> FR-1 current-stage display; FR-2 provisioning stages mapped to backend signals;
-> FR-3 auto-refresh; FR-4 terminal/failure state persisted for the life of the
-> record; FR-5 per-stage failure messages; NFR-1 ~5s freshness; NFR-2 read-only;
-> NFR-3 pattern-reuse consistency.
->
-> This iteration surfaces **provisioning progress only** via staged
-> `reason`/`message` on the existing `PROVISIONED` condition plus a terminal
-> `READY` (no new proto/CRD fields). Deprovisioning progress and a durable ordered
-> per-phase timeline with durations are deferred (see design "Deferred /
-> Follow-up work"), so there are no timeline-array, deprovisioning, or
-> finalizer-handshake test cases.
+### Traceability note
+
+The published PRD does not declare formal `FR-*` or `NFR-*` requirement headings. The IDs below are retained exactly from the approved design's interface-change requirement references. The descriptions are working traceability labels derived from those references and the PRD scope; they are not new requirements. The canonical wording and any missing numeric bounds must be confirmed during review.
+
+| Requirement ID | Working traceability label used by this plan | Source of the mapping |
+|---|---|---|
+| FR-1 | Staged provisioning progress is visible through the existing status/detail surfaces | Approved design IC-1, IC-2, IC-4; PRD progress-view scope |
+| FR-2 | The approved four-stage model is derived from the existing condition contract | Approved design IC-2, IC-6 |
+| FR-3 | The active detail view refreshes progress automatically | Approved design IC-4; PRD progress-view scope |
+| FR-4 | Terminal success and failure remain viewable for the record lifetime | Approved design terminal-state behavior; PRD terminal-outcome scope |
+| FR-5 | Failures use curated phase-specific human-readable messages | Approved design IC-5; PRD failure-message scope |
+| NFR-1 | Feedback keeps API-visible status fresh through the existing Signal path | Approved design IC-3 |
+| NFR-2 | The progress surface is consistent, readable, and read-only while updating | Approved design IC-4; exact canonical wording is not declared in the PRD |
+| NFR-3 | The cross-service condition contract remains stable and exhaustively interpreted without a new schema | Approved design IC-1, IC-6 |
+
+### Approved behavior boundaries
+
+- The approved stages are `Host Allocation`, `Provisioning`, `Network Setup`, and `Ready`. Failure is terminal and is associated with the phase in which it occurs.
+- The approved design uses the existing `reason` and `message` fields on the existing status condition. Expected results below must not require a new field, CRD property, or proto field.
+- The approved failure vocabulary is normative for the user-visible failure message. Exact strings are asserted in `TC-FR5-01`.
+- Visual choices that the approved design leaves open—layout, colors, icons, and animation—are not behavioral assertions. Tests assert semantic state, text, read-only behavior, and update timing only.
+- The current implementation observations in `01-context.md` are baseline context, not expected results. In particular, the current coarse status projection, global UI polling interval, absent operator derivation helper, and existing `READY` comment do not override the approved design.
+
+### Test execution conventions
+
+- Existing unit and envtest cases run with the component's documented `make test` or focused Go test command from that component directory.
+- Existing UI tests run from `osac-ui/` with the documented Vitest command; React Testing Library and fake timers may be used for deterministic polling assertions.
+- Proposed cross-component cases must use bounded observable waits, not fixed sleeps. External Metal3/Ironic/BMC provisioning is mocked or isolated unless a real-provider environment is explicitly supplied.
+- Proposed E2E cases belong under `tests/e2e/bmaas/` and must use the existing BMaaS fixtures and wait helpers. They are not claimed to exist in the current suite.
 
 ## Test Cases
 
-### FR-1: The bare metal instance detail view shows the current provisioning stage and a human-readable message, computed from the instance conditions
+### FR-1: Staged provisioning progress is visible
 
-#### TC-FR1-01: Progress view renders the four steps derived from the PROVISIONED reason
+#### TC-FR1-01: Project the current stage through the existing status condition
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-4 | critical | automated |
+|---|---|---|
+| IC-1, IC-2 | Critical | Automated unit and envtest |
 
 ##### Preconditions
 
-- A bare metal instance is provisioning; its API status has `PROVISIONED`
-  `status = False` with `reason = Provisioning` and a curated `message`, and
-  `READY` not yet `True`.
+- A BMaaS instance fixture uses the existing condition fields and can be advanced through the four approved stages.
+- The operator, feedback path, and fulfillment status projection are exercised with the same condition type/status/reason/message contract used in production.
+
+##### Execution
+
+- Owner/tier: bare-metal-fulfillment-operator and fulfillment-service; unit plus envtest.
+- Location/command: proposed co-located operator and fulfillment controller tests; run the affected component's focused Go tests, then `make test` in each affected component.
+- Dependencies: Kubernetes API and database are mocked or envtest-backed; no Metal3, Ironic, BMC, or real provisioning job is required.
 
 ##### Steps
 
-1. Open the instance detail page.
-2. Inspect the rendered progress view.
+1. Set the fixture to each approved non-terminal stage, including a transition where more than one prerequisite condition is already true.
+2. Reconcile the operator and process the status through the existing feedback path.
+3. Read the existing user-facing status condition and its `reason` and `message` fields.
 
 ##### Expected Results
 
-- Four ordered steps appear: Host Allocation, Provisioning, Network Setup, Ready.
-- Host Allocation is shown as complete; Provisioning is shown as the current
-  in-progress step; Network Setup and Ready are shown as not started.
-- The current (Provisioning) step shows the curated `message` from the
-  `PROVISIONED` condition; no per-step duration is shown.
+- The projected condition identifies the approved current stage and contains the stage-specific user-facing status described by the approved design.
+- The projection uses the existing condition fields and preserves tenant-scoped status ownership; no new schema field is required.
+- A later stage is not replaced by an earlier condition merely because condition update order differs.
 
-#### TC-FR1-02: API returns PROVISIONED with the stage reason and curated message; READY terminal
+#### TC-FR1-02: Render staged progress from the existing API response
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-1 | high | automated |
+|---|---|---|
+| IC-4 | High | Automated UI unit/component test |
 
 ##### Preconditions
 
-- A bare metal instance has completed Host Allocation and is in the Provisioning
-  stage.
+- React Testing Library fixtures provide an API response for each approved stage and for a terminal failure.
+- The detail view is rendered as a read-only view with no mutation handlers.
+
+##### Execution
+
+- Owner/tier: osac-ui; Vitest and React Testing Library.
+- Location/command: proposed tests co-located with `BareMetalDetails`; run `pnpm test` from `osac-ui/`.
+- Dependencies: API responses are mocked; no browser cluster or provisioning backend is required.
 
 ##### Steps
 
-1. Issue `GET /api/fulfillment/v1/baremetal_instances/{id}`.
-2. Read `status.conditions`.
+1. Render the detail view with each staged API response.
+2. Query the accessible stage/status text and the condition detail exposed to the user.
+3. Attempt the available view interactions and record all network calls made by the component.
 
 ##### Expected Results
 
-- The `PROVISIONED` condition has `status = False`, `reason = Provisioning`, and a
-  non-empty curated `message` (not raw error text).
-- The `READY` condition is not `True`.
-- No new phase/timeline fields are present on the status (the change is carried
-  entirely on existing condition `reason`/`message`).
+- The current approved stage and its user-facing condition detail are exposed for every response.
+- The view remains read-only and makes no create, update, retry, or delete request.
+- Assertions do not depend on an unapproved visual choice such as exact layout, color, icon, or animation.
 
-### FR-2: The provisioning workflow presents four stages, each derived from an authoritative operator condition, order-independently
+### FR-2: The approved four-stage model is derived from conditions
 
-#### TC-FR2-01: Operator lifecycle conditions map to the correct furthest-advanced stage
+#### TC-FR2-01: Derive the furthest advanced stage independently of condition order
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-2 | critical | automated |
+|---|---|---|
+| IC-2, IC-6 | Critical | Automated operator unit test |
 
 ##### Preconditions
 
-- Fulfillment reconciler unit test harness with `BareMetalInstance` CR fixtures
-  carrying operator lifecycle conditions in varying orders.
+- The approved stage order and condition-to-stage mapping are encoded as test fixtures from the design.
+- The fixture can present the same set of conditions in every permutation, including a failure condition and incomplete prerequisites.
+
+##### Execution
+
+- Owner/tier: bare-metal-fulfillment-operator; unit test in the controller/API package.
+- Location/command: proposed co-located derivation tests; run `make test` from `bare-metal-fulfillment-operator/`.
+- Dependencies: pure in-memory condition fixtures; no Kubernetes or provider dependency.
 
 ##### Steps
 
-1. Build a fixture with `Allocated = True` and `ProvisionTemplateComplete` not
-   set, with the conditions listed in a non-sequential order.
-2. Run `syncStatus()`.
-3. Advance the fixture to `ProvisionTemplateComplete = True`, network conditions
-   not yet True, and re-run.
+1. For every mapped condition combination in the approved contract, derive the stage.
+2. Repeat each combination with condition order permuted.
+3. Exercise incomplete, simultaneous, and terminal-failure combinations.
 
 ##### Expected Results
 
-- After step 2, `PROVISIONED.reason = Provisioning` — the furthest-advanced True
-  condition selects the stage regardless of condition ordering in the CR.
-- After step 3, `PROVISIONED.reason = NetworkSetup`.
-- In both cases `PROVISIONED.message` is the curated string for that stage and
-  `PROVISIONED.status = False`.
+- Each combination has one explicit approved outcome; no input is silently treated as `Ready` by a default branch.
+- The result is the furthest advanced approved stage represented by the conditions, independent of list order.
+- A terminal failure remains associated with its approved phase and is not hidden by a later success condition.
 
-#### TC-FR2-02: PROVISIONED flips True at provisioning completion and READY True at readiness
+#### TC-FR2-02: Handle no-work networking and terminal transitions
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-2 | critical | automated |
+|---|---|---|
+| IC-2, IC-6 | Medium | Automated unit and envtest |
 
 ##### Preconditions
 
-- A CR fixture with all provisioning/network conditions True but the instance not
-  yet powered-on ready, and a second fixture that is additionally available/ready.
+- Fixtures represent both an instance with network setup work and an instance for which network setup is not requested.
+- The approved Ready semantics and terminal transition rules are loaded from the design, rather than from the current implementation.
+
+##### Execution
+
+- Owner/tier: bare-metal-fulfillment-operator and fulfillment-service; unit plus envtest.
+- Location/command: proposed controller/status tests; run focused Go tests and `make test` in the affected components.
+- Dependencies: Kubernetes API and persistence are mocked or envtest-backed; provider operations are not required.
 
 ##### Steps
 
-1. Run `syncStatus()` on the all-provisioned-but-not-ready fixture.
-2. Run `syncStatus()` on the ready fixture.
+1. Advance a no-network instance through allocation and provisioning to the approved terminal state.
+2. Advance a networked instance through network setup to the same terminal state.
+3. Repeat with a failure at each applicable stage.
 
 ##### Expected Results
 
-- After step 1, `PROVISIONED.status = True` with `reason = Provisioned` and its
-  terminal `message`; `READY` is not `True`.
-- After step 2, `READY.status = True` with `reason = Ready` and its terminal
-  `message`.
+- Absence of optional network conditions does not create a false failure or require an inapplicable stage.
+- The two valid paths converge on the same approved terminal semantics when their required work succeeds.
+- Failures stop at the phase where they occur and retain the approved phase-specific message.
 
-#### TC-FR2-03: A stage with no work does not leave the instance stuck
+### FR-3: The active detail view refreshes automatically
+
+#### TC-FR3-01: Poll while active and stop after a terminal outcome
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-2 | medium | automated |
+|---|---|---|
+| IC-4 | Critical | Automated UI unit/component test |
 
 ##### Preconditions
 
-- A CR fixture for an instance that requests no network attachment, driven to
-  provisioning completion (network conditions satisfied trivially).
+- The API query is controllable and returns a non-terminal response followed by a terminal success or failure response.
+- Fake timers are enabled so elapsed polling time is deterministic.
+
+##### Execution
+
+- Owner/tier: osac-ui; Vitest and React Testing Library.
+- Location/command: proposed tests co-located with the detail query/view; run `pnpm test` from `osac-ui/`.
+- Dependencies: query function is mocked; no live API or browser cluster is required.
 
 ##### Steps
 
-1. Run `syncStatus()` through to completion.
-2. Inspect the derived stage progression.
-3. Render the progress view for the completed instance.
+1. Render the view with a non-terminal response and advance fake time through successive approved polling intervals.
+2. Change the mocked response to terminal success and advance time again.
+3. Repeat with terminal failure and unmount/remount the view around the transition.
 
 ##### Expected Results
 
-- The derivation advances past Network Setup (it is treated as satisfied) rather
-  than lingering on `reason = NetworkSetup`; `PROVISIONED` reaches `True`.
-- The UI shows the Network Setup step as complete, not stuck as not-started or
-  in-progress.
+- While the instance is non-terminal, the query refreshes at the approved bounded interval.
+- The view reflects the next API result without a user-initiated reload.
+- Polling stops after either terminal success or terminal failure, and unmounting leaves no active timer or subscription.
+- The test asserts the approved timing bound; it does not preserve the current global 10-second interval as a requirement.
 
-#### TC-FR2-04: The CR→stage derivation is exhaustive over the operator condition constants, so a CR-condition change breaks a test rather than the proto
+### FR-4: Terminal outcomes remain viewable for the record lifetime
+
+#### TC-FR4-01: Preserve terminal success after the source CR disappears
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-6 | high | automated |
+|---|---|---|
+| — | High | Proposed automated component integration test |
 
 ##### Preconditions
 
-- The bare-metal-fulfillment-operator `api/v1alpha1` package, which exports the
-  `HostCondition*` constants and the pure `DeriveProvisioningProgress` derivation
-  used by the fulfillment reconciler. This is an operator-package unit test (it
-  guards the contract at the source, next to the constants), not a
-  fulfillment-service test.
+- A tenant-scoped BMaaS record and its source CR exist in an isolated environment.
+- The record has reached the approved terminal Ready state and its status has been persisted.
+
+##### Execution
+
+- Owner/tier: fulfillment-service with feedback integration; proposed component integration test.
+- Location/command: proposed test under the fulfillment controller integration-test area; run the component's focused integration command after the implementation supplies the harness.
+- Dependencies: real persistence and Kubernetes API; provider provisioning is mocked. The test must use bounded status waits.
 
 ##### Steps
 
-1. Enumerate the exported `HostCondition*` condition-type constants in the package
-   (via the package's declared list of known conditions that the test asserts
-   against the exported constants — see expected results).
-2. For each constant, assert `DeriveProvisioningProgress` classifies it — it either
-   selects a provisioning stage, marks provisioning complete / ready, maps to a
-   failure classification, or appears in the derivation's explicit
-   "intentionally not surfaced" list.
-3. Feed the derivation a synthetic, unknown condition type and a fixture missing a
-   previously-mapped condition, and observe the classification result.
+1. Drive the record to terminal success and wait for the persisted API status.
+2. Delete the source CR while retaining the fulfillment record.
+3. Read the record through the existing API and refresh the detail view.
 
 ##### Expected Results
 
-- Every exported `HostCondition*` constant is classified (mapped or explicitly
-  not-surfaced); no constant is left unhandled. The set of constants the test
-  iterates is derived from the exported constants themselves, so **adding** a new
-  `HostCondition*` without classifying it fails this test.
-- **Renaming or removing** a `HostCondition*` that the derivation references fails
-  to compile or fails this test (the constant the derivation names no longer
-  exists / no longer matches), surfacing the CR→proto coupling as a build/test
-  failure in the operator repo — not as a silently wrong or empty proto `reason`
-  observed later by the fulfillment reconciler.
-- The synthetic unknown condition is ignored (does not select a stage) and its
-  presence is flagged as unclassified by the exhaustiveness assertion, confirming
-  the guard fires for an unrecognised condition.
+- The persisted record remains readable for the record's approved lifetime.
+- The terminal Ready outcome, stage, and associated condition detail do not regress merely because the source CR is gone.
+- No new source CR is created by the read-only status view.
 
-### FR-3: The progress view auto-refreshes approximately every 5 seconds without user action
-
-#### TC-FR3-01: Detail view advances the stage on refetch without user interaction
+#### TC-FR4-02: Preserve terminal failure and its message after the source CR disappears
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-4 | high | automated |
+|---|---|---|
+| — | High | Proposed automated component integration test |
 
 ##### Preconditions
 
-- An active instance rendered on the detail page; the mock API advances
-  `PROVISIONED.reason` from `Provisioning` to `NetworkSetup` between fetches.
+- A tenant-scoped BMaaS record has reached each representative approved terminal failure through the existing status path.
+- Persistence and API reads are available after source-CR deletion.
+
+##### Execution
+
+- Owner/tier: fulfillment-service with feedback integration; proposed component integration test.
+- Location/command: proposed companion to `TC-FR4-01`; run the focused component integration command with mocked provider operations.
+- Dependencies: real persistence and Kubernetes API; no real hardware provider.
 
 ##### Steps
 
-1. Render the detail page and let the query refetch (no user action).
-2. Observe the progress view after the refetch resolves.
+1. Drive the record to terminal failure at each applicable phase.
+2. Record the API-visible stage, reason, and curated message.
+3. Delete the source CR and read the record again through the API and detail view.
 
 ##### Expected Results
 
-- Without any click or reload, the Provisioning step transitions to complete and
-  Network Setup becomes the current in-progress step.
-- The change of current step is announced to assistive technology (the new
-  current step is conveyed without relying on color alone).
+- The failure remains terminal and associated with the same phase.
+- The exact curated message remains stable after source-CR deletion and refresh.
+- The view does not offer a retry or expose the deleted CR's raw provider error.
 
-### FR-4: The terminal or failure state (which stage the instance reached or failed at, and its message) persists for the life of the fulfillment instance record
+### FR-5: Failures use curated phase-specific messages
 
-> Re-scoped for this iteration: the single coarse condition persists the
-> terminal/failure `reason`/`message`, not a full ordered per-phase history with
-> durations. The durable timeline is a deferred follow-up.
-
-#### TC-FR4-01: Completed instance persists terminal conditions and renders all steps succeeded
+#### TC-FR5-01: Map every approved failure reason to its exact user message
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-1 | high | automated |
+|---|---|---|
+| IC-2, IC-5 | Critical | Automated unit test |
 
 ##### Preconditions
 
-- An instance that reached readiness: API `PROVISIONED = True` (`reason
-  Provisioned`) and `READY = True` (`reason Ready`).
+- The failure fixture can set each approved phase/reason pair on the existing condition.
+- The expected messages are taken verbatim from the approved design.
+
+##### Execution
+
+- Owner/tier: fulfillment-service and operator status projection; proposed co-located unit tests.
+- Location/command: affected controller/status packages; run the focused Go tests and the component's `make test`.
+- Dependencies: in-memory conditions and status projection; no provider or database dependency.
 
 ##### Steps
 
-1. With the instance at readiness, make the source `BareMetalInstance` CR
-   unavailable (delete/detach it on the hub) while the fulfillment record remains
-   live, so any subsequent response must be served from the DB rather than the CR.
-2. Open the completed instance's detail page and inspect the progress view.
-3. Issue `GET /api/fulfillment/v1/baremetal_instances/{id}` and read
-   `status.conditions`.
+1. Apply each phase/reason pair in the table below.
+2. Project the condition through the approved operator-to-fulfillment path.
+3. Compare the user-visible message and terminal phase with the expected values.
 
 ##### Expected Results
 
-- All four steps are shown as complete; no step is shown as in-progress or
-  current; no per-step duration is asserted (none is shown this iteration).
-- The API returns `PROVISIONED = True` and `READY = True` with their terminal
-  reasons/messages, served from the DB independent of the now-unavailable CR — a
-  CR-backed response could not have produced this result.
+| Phase | Reason | Exact user-visible message |
+|---|---|---|
+| Host Allocation | `NoMatchingHosts` | `No bare metal host matched the requested profile.` |
+| Host Allocation | `HostAllocationFailed` | `Host allocation failed.` |
+| Provisioning | `ProvisionJobFailed` | `OS installation and configuration did not complete; the provisioning job failed.` |
+| Network Setup | `NetworkAttachmentFailed` | `Network attachment did not complete.` |
+| Network Setup | `NetworkHandoffFailed` | `Network handoff (reboot) did not complete.` |
+| Network Setup | `IPDiscoveryFailed` | `IP address discovery did not complete.` |
+| Ready | `ReadyTimeout` | `The instance did not reach its powered-on ready state.` |
 
-#### TC-FR4-02: Failed instance persists the failing condition, then archives to 404
+- Each reason maps to exactly the message in the table and to its approved phase.
+- No raw provider exception, internal object name, credential, or unapproved retry instruction appears in the user-visible message.
+- The fallback mapping for an unrecognized provider failure is not specified in the published sources and remains an implementation-review gap; no test assertion is introduced for it until the approved mapping is confirmed.
+
+#### TC-FR5-02: Present a terminal failure without a retry action or raw error
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-1 | high | automated |
+|---|---|---|
+| IC-4, IC-5 | High | Automated UI unit/component test |
 
 ##### Preconditions
 
-- An instance whose Provisioning stage failed: `PROVISIONED = False`,
-  `reason = ProvisionJobFailed`, with the IC-5 curated `message`.
+- The UI receives each curated failure response from `TC-FR5-01`, including the phase, reason, and message.
+- A raw provider-error field is included in the fixture only to verify that it is not rendered.
+
+##### Execution
+
+- Owner/tier: osac-ui; Vitest and React Testing Library.
+- Location/command: proposed failure-state tests co-located with `BareMetalDetails`; run `pnpm test` from `osac-ui/`.
+- Dependencies: mocked API response; no live provider or browser cluster.
 
 ##### Steps
 
-1. With the instance's Provisioning stage failed, make the source
-   `BareMetalInstance` CR unavailable (delete/detach it on the hub) while the
-   fulfillment record remains live, before the first `GET`.
-2. Issue `GET /api/fulfillment/v1/baremetal_instances/{id}` and read
-   `status.conditions`.
-3. Only after that assertion, let fulfillment soft-delete and archive the record
-   to `archived_<table>` (on finalizer removal), then issue the same `GET` again.
+1. Render the detail view for each curated failure response.
+2. Inspect the accessible failed-stage text and displayed message.
+3. Inspect rendered controls and captured network calls.
 
 ##### Expected Results
 
-- Step 2 (source CR already unavailable): the response retains the failing
-  `PROVISIONED` condition (`False`, `reason = ProvisionJobFailed`, curated
-  `message`) served from the DB independent of the CR, so the failure remains
-  viewable after the CR is gone — a CR-backed response could not have produced this
-  result.
-- Step 3: returns 404 — the released record has been archived and there is no
-  archive-read path, so FR-4 is bounded to the life of the live record (matching
-  VMaaS/CaaS).
+- The failed phase and exact curated message are displayed.
+- The raw provider error is not displayed.
+- No retry or mutation action is offered by the approved read-only view, and rendering causes no mutation request.
 
-### FR-5: Failure descriptions identify the stage and condition in human-readable terms; no raw internal errors are surfaced
+### NFR-1: Feedback keeps API-visible status fresh
 
-#### TC-FR5-01: Failed stage shows its defined human-readable message
+#### TC-NFR1-01: Propagate a status transition through Signal within the approved freshness bound
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-5 | high | automated |
+|---|---|---|
+| IC-3 | Critical | Proposed automated contract/integration test |
 
 ##### Preconditions
 
-- Reconciler test harness with a table of fixtures, one per IC-5 failure reason
-  (`NoMatchingHosts`, `HostAllocationFailed`, `ProvisionJobFailed`,
-  `NetworkAttachmentFailed`, `NetworkHandoffFailed`, `IPDiscoveryFailed`,
-  `ReadyTimeout`), each injecting that stage's failure into the failing condition.
+- The feedback controller watches the status transition and uses the existing Signal RPC path.
+- The test has a monotonic clock and bounded polling observer for the persisted fulfillment record.
+
+##### Execution
+
+- Owner/tier: osac-operator feedback controller and fulfillment-service; proposed cross-component contract test, with an isolated fake fulfillment endpoint or Kind deployment.
+- Location/command: proposed test under the affected controller/integration area; run the focused feedback tests and the component integration command.
+- Dependencies: real controller event handling and persistence; external provisioning is mocked. If the shared environment cannot provide deterministic timing, isolate the Signal RPC and test event-to-persistence propagation separately.
 
 ##### Steps
 
-1. For each IC-5 reason, run `syncStatus()` on its fixture.
-2. Read the failing condition's `reason`/`message` from the API, and record
-   **which** condition carries the failure (`PROVISIONED` vs `READY`).
-3. Render the progress view for that failed instance and read the failed step's
-   name and message.
+1. Change a source CR condition from one approved stage to the next.
+2. Wait for the feedback controller to issue Signal and for the fulfillment record to change.
+3. Measure monotonic time from the source status transition to the API-visible update.
 
 ##### Expected Results
 
-- For every IC-5 reason, the failing condition's `message` equals that reason's
-  exact IC-5 string byte-for-byte (e.g. `ProvisionJobFailed` → "OS installation
-  and configuration did not complete; the provisioning job failed."). The **full
-  IC-5 failure vocabulary is exercised** — one message per reason — and no other
-  value is emitted; the mapping is fixed and deterministic.
-- For every IC-5 reason, the failure is carried by the condition IC-5 names: the
-  six provisioning-stage reasons (`NoMatchingHosts`, `HostAllocationFailed`,
-  `ProvisionJobFailed`, `NetworkAttachmentFailed`, `NetworkHandoffFailed`,
-  `IPDiscoveryFailed`) on `PROVISIONED`, and `ReadyTimeout` on `READY`. The test
-  asserts the expected carrier per reason.
-- For each reason, the progress view marks the IC-5 **Failed step** for that
-  reason (`ReadyTimeout` → Ready; the provisioning reasons → Host Allocation,
-  Provisioning, or Network Setup per the IC-5 table) as failed, and the same
-  message renders verbatim for that failed step.
+- The API-visible stage and condition update is observed within the approved freshness bound.
+- The existing Signal path is used; no polling-only fallback is required for normal propagation.
+- Duplicate status events do not create conflicting or stale terminal projections.
 
-#### TC-FR5-02: Raw internal error text is not surfaced in the conditions
+The published sources describe this as a single-digit-seconds freshness target but do not state a numeric threshold. The implementation/test owner must confirm the numeric bound before this case can be scored; no arbitrary threshold is introduced here.
+
+### NFR-2: The progress surface is consistent, readable, and read-only
+
+#### TC-NFR2-01: Keep semantic state and controls consistent across updates
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-5 | medium | automated |
+|---|---|---|
+| IC-4 | Medium | Automated UI unit/component test |
 
 ##### Preconditions
 
-- A stage failure whose underlying backend error contains an internal stack trace
-  or raw AAP/backend error string.
+- The same detail view instance receives sequential API responses for all approved stages and then a terminal outcome.
+- Fixtures include condition detail and any raw/internal fields that must remain hidden.
+
+##### Execution
+
+- Owner/tier: osac-ui; Vitest and React Testing Library.
+- Location/command: proposed co-located semantic-state tests; run `pnpm test` from `osac-ui/`.
+- Dependencies: mocked API responses and deterministic query timers; no live cluster.
 
 ##### Steps
 
-1. Inject the backend failure with a raw internal error.
-2. Read the failing condition's `reason`/`message` and inspect **every** condition
-   in the API `status.conditions` payload.
+1. Render the initial stage and record the accessible state and available controls.
+2. Apply each subsequent stage response without remounting the view.
+3. Apply terminal success and terminal failure responses.
 
 ##### Expected Results
 
-- `message` contains only the stage-specific human-readable text from the fixed
-  vocabulary.
-- The raw backend error string does not appear in `reason`, `message`, or anywhere
-  in the API `status.conditions` payload.
+- The accessible current-stage state and condition text change to match each response without stale text from the preceding stage.
+- The view remains read-only throughout and has no mutation or retry control.
+- The semantic assertions remain valid regardless of deferred layout, color, icon, or animation choices.
 
-### NFR-1: Progress reflects backend state within approximately 5 seconds
+The exact canonical wording for `NFR-2` is not declared in the PRD; this case covers only the observable read-only/consistency behavior supported by the approved design and records the wording gap for review.
 
-#### TC-NFR1-01: A hub CR condition change reaches the API within the freshness window via the feedback→Signal path
+### NFR-3: The condition contract remains stable and exhaustive
+
+#### TC-NFR3-01: Verify compatibility with the existing schema and exhaustive interpretation
 
 | Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-3 | high | automated |
+|---|---|---|
+| IC-1, IC-6 | Low | Proposed automated compatibility check plus unit test |
 
 ##### Preconditions
 
-- Fulfillment reconciler and the osac-operator feedback controller running against
-  a kind cluster, at steady state (no in-flight proto diff), for an instance whose
-  CR is at the Provisioning stage.
+- A baseline revision of the published API/proto/CRD descriptors is available for comparison.
+- The approved condition mapping fixture enumerates every condition/status combination accepted by the design.
+
+##### Execution
+
+- Owner/tier: proto/API owners and bare-metal-fulfillment-operator; proposed repository compatibility check and co-located derivation test.
+- Location/command: proposed check in the affected component validation; run the existing proto/CRD validation and `make test` from `bare-metal-fulfillment-operator/`. The exact baseline comparison command must be selected with the implementation owner.
+- Dependencies: generated artifacts are compared to the approved baseline; no external provider is required.
 
 ##### Steps
 
-1. Record `t0`, then update the `BareMetalInstance` CR on the hub so the operator
-   conditions advance the derived stage from Provisioning to Network Setup.
-2. Poll `GET /api/fulfillment/v1/baremetal_instances/{id}` at a sub-second cadence
-   and record `t1` — the first response with `PROVISIONED.reason = NetworkSetup`.
+1. Compare the generated proto/API and CRD field sets with the approved baseline.
+2. Compile and run the condition derivation tests against every enumerated input.
+3. Verify that existing clients can deserialize the status condition containing stage `reason` and `message` values.
 
 ##### Expected Results
 
-- The feedback controller fires `Signal(id)` on the condition change, the
-  reconciler re-reads the CR and updates the DB, and the API reflects the new
-  stage. The assertion is **bounded**: `t1 - t0` ≤ the NFR-1 freshness deadline
-  (single-digit seconds; ~5s soft target), and the update arrives **before** the
-  periodic full-resync interval would fire (freshness comes from the `Signal`
-  path, not the resync fallback) and without any new watch/informer. To isolate
-  the `Signal` path, the periodic full-resync interval is configured well above
-  the asserted bound.
+- No new proto field, CRD field, or API schema property is required for provisioning progress.
+- Every approved condition combination has an explicit derivation result, and unsupported combinations fail according to the approved contract rather than silently becoming Ready.
+- Existing clients continue to read the condition type, status, reason, and message without a compatibility change.
 
-#### TC-NFR1-02: The detail view reflects an API stage change within the bounded UI poll interval and stops at terminal
-
-| Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-4 | high | automated |
-
-##### Preconditions
-
-- The instance detail page is rendered for a **non-terminal** instance; the mock
-  API returns `PROVISIONED.reason = Provisioning`. Fake timers control the query
-  `refetchInterval`.
-
-##### Steps
-
-1. Render the detail page and let the initial fetch settle on the Provisioning
-   stage.
-2. Update the mock API to return `PROVISIONED.reason = NetworkSetup`, then advance
-   fake timers by the dedicated ~5s `refetchInterval` (no user interaction).
-3. Inspect the progress view.
-4. Drive the instance to a resting **successful** terminal state (`PROVISIONED =
-   True`, `READY = True`), let one more interval elapse, then update the mock API
-   again and advance timers.
-5. Repeat with a **failed** terminal fixture: drive the instance to a provisioning
-   condition `False` with a failure `reason`, let one more interval elapse, update
-   the mock API again, and advance timers.
-
-##### Expected Results
-
-- After step 2's single ~5s interval, the progress view reflects Network Setup
-  in progress without any click or reload — the DB→UI leg is bounded to the dedicated per-page
-  ~5s poll, not the global ~10s default. This complements TC-NFR1-01, which
-  measures the CR→API (DB) leg; together they bound end-to-end freshness.
-- After step 4, once the instance is at the successful terminal state (`READY =
-  True`) the query **stops refetching**: the later mock-API change is not picked
-  up.
-- After step 5, a **failed** terminal instance (a provisioning condition `False`
-  with a failure reason) likewise **stops refetching**: polling halts at both the
-  successful and failed terminal states, matching the design's terminal-stop rule.
-
-### NFR-2: The progress and failure display is read-only
-
-#### TC-NFR2-01: The progress view exposes no retry or re-provision control
-
-| Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-4 | high | automated |
-
-##### Preconditions
-
-- A failed instance rendered on the detail page.
-
-##### Steps
-
-1. Open the failed instance's detail page.
-2. Query the progress view region for interactive controls.
-
-##### Expected Results
-
-- No retry, re-provision, or other mutating button/link is present in the progress
-  region.
-- The steps expose no click/select behavior (display-only progress view).
-
-### NFR-3: Progress reuses the OSAC coarse-condition staged reason/message pattern for cross-service consistency
-
-> "Reuse" here means the same shape CaaS adopted in OSAC-4441 (PR #646): a single
-> coarse progress condition whose `reason`/`message` carry the furthest-advanced
-> stage, refreshed each reconcile, with a terminal `READY`. No new
-> phase/timeline construct is introduced.
-
-#### TC-NFR3-01: Coarse state and conditions are retained; PROVISIONED reason equals the current stage
-
-| Interface Change | Priority | Automation |
-|-----------------|----------|------------|
-| IC-2 | medium | automated |
-
-##### Preconditions
-
-- An active instance in the Network Setup stage.
-
-##### Steps
-
-1. Read `status.state` and `status.conditions` from the API.
-
-##### Expected Results
-
-- `status.state` still returns the coarse lifecycle value and `status.conditions`
-  still includes the existing condition set (the shared conditions table is
-  unaffected).
-- The `PROVISIONED` condition `reason` equals `NetworkSetup`, matching the current
-  provisioning stage — the same coarse-condition staged-reason shape CaaS uses.
+The repository has no dedicated current test for this exact no-schema-change assertion; the compatibility command and baseline source must be finalized before execution.
 
 ## Gaps
 
 ### Requirement Coverage Gaps
 
-All PRD requirements in scope for this iteration have test cases. Deprovisioning
-progress and the durable ordered per-phase timeline are deferred (out of scope
-here) and are intentionally not covered.
+- All eight preserved requirement IDs have at least one behavioral case, but the PRD does not provide canonical FR/NFR wording. `FR-1`–`FR-5` and `NFR-1`–`NFR-3` descriptions must be confirmed against the approved design during review.
+- `NFR-1` has no numeric freshness threshold in the published sources. The plan deliberately does not invent one; the test cannot be scored until the bound is fixed.
+- `NFR-2` has no independently stated canonical wording. The plan covers only the approved design's observable read-only, semantic consistency, and update behavior.
+- `FR-4` says “record lifetime,” but the published sources do not define the retention/archive boundary. The test covers persistence while the record remains within that approved lifetime; retention policy itself remains out of scope.
 
 ### Interface Change Coverage Gaps
 
-All interface changes are exercised by test cases (IC-1: TC-FR1-02, TC-FR4-01,
-TC-FR4-02; IC-2: TC-FR2-01, TC-FR2-02, TC-FR2-03, TC-NFR3-01; IC-3: TC-NFR1-01;
-IC-4: TC-FR1-01, TC-FR3-01, TC-NFR1-02, TC-NFR2-01; IC-5: TC-FR5-01, TC-FR5-02;
-IC-6: TC-FR2-04).
+- All six interface changes have test coverage. `IC-3` freshness and `IC-6` exhaustive interpretation require proposed cross-component or compatibility harnesses because the current repository does not expose dedicated tests for those contracts.
+- The current implementation does not yet provide the approved operator derivation helper, fixed failure vocabulary, or staged UI behavior. Those are implementation gaps recorded in `01-context.md`, not alternate expected results for this plan.
+- The current proto `READY` comment describes a coarser availability meaning than the approved powered-on Ready semantics. The plan follows the approved design and requires the implementation owner to reconcile the source comment/contract before execution; it does not treat the current comment as a second valid behavior.
+- Existing BMaaS E2E coverage waits for CR lifecycle states but does not assert staged API conditions. New staged assertions should be added under `tests/e2e/bmaas/` only if the component integration cases cannot provide the required cross-service evidence.
 
 ## Summary
 
 | Metric | Count |
-|--------|-------|
-| Total test cases | 15 |
-| Critical | 3 |
-| High | 9 |
-| Medium | 3 |
-| Low | 0 |
-| Automated | 15 |
+|---|---:|
+| Total test cases | 12 |
+| Critical | 5 |
+| High | 4 |
+| Medium | 2 |
+| Low | 1 |
+| Automated | 12 |
 | Manual | 0 |
-| Requirements with test cases | 8 / 8 |
-| Interface changes with test cases | 6 / 6 |
+| Requirements covered | 8 / 8 |
+| Interface changes covered | 6 / 6 |
+| Cases requiring proposed component-integration or compatibility harnesses | 4 |
