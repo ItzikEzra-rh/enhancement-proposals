@@ -666,17 +666,10 @@ class UpsertCommentTests(unittest.TestCase):
 
         def fake_gh(args, check=False):
             calls.append(args)
-            # This ID-only lookup emits metadata and avoids a second detail
-            # request because the caller does not need the comment body.
-            if args and args[0] == "api" and "issues/1/comments?per_page=100" in args[1]:
-                if not existing_id:
-                    return ""
-                return json.dumps({
-                    "id": existing_id,
-                    "user": {"login": "github-actions[bot]"},
-                    "created_at": "2026-09-14T00:00:00Z",
-                    "candidate_kind": "preferred",
-                })
+            # The _find_comment_id lookup ends in the issues/{pr}/comments API
+            # read — return the existing comment id (or empty to force create).
+            if args and args[0] == "api" and args[1].endswith("/comments"):
+                return existing_id or ""
             return ""
 
         with patch.object(self.hooks, "_gh", side_effect=fake_gh):
@@ -1080,22 +1073,7 @@ class CheckPrStateTagTests(unittest.TestCase):
     def _check(self, existing_body, skill_name="prd-review"):
         from unittest.mock import patch
 
-        detail = json.dumps({
-            "id": 1,
-            "user": {"login": "github-actions[bot]"},
-            "body": existing_body,
-            "created_at": "2026-09-14T00:00:00Z",
-        }) if existing_body else ""
-        page = ""
-        if existing_body:
-            page = json.dumps({
-                "id": 1,
-                "user": {"login": "github-actions[bot]"},
-                "created_at": "2026-09-14T00:00:00Z",
-                "candidate_kind": "preferred",
-            })
-        responses = [page, detail] if existing_body else [page]
-        with patch.object(self.hooks, "_gh", side_effect=responses):
+        with patch.object(self.hooks, "_gh", return_value=existing_body):
             return self.hooks.check_pr_state(
                 "EP-1",
                 {"labels": ["rfe-creator-auto-reviewed"], "headRefOid": "abc12345deadbeef"},
@@ -1104,27 +1082,17 @@ class CheckPrStateTagTests(unittest.TestCase):
 
     def _check_scoped(self, comments, skill_name):
         """Drive check_pr_state against a fake comment list where each review
-        type has its own body, honoring the per-type lookup the helper builds.
+        type has its own body, honouring the per-type --jq the lookup builds.
         `comments` maps "prd"/"design" -> body (or None for absent)."""
         from unittest.mock import patch
 
         def fake_gh(args, check=False):
-            body = comments.get("prd" if skill_name == "prd-review" else "design")
-            if "issues/1/comments?per_page=100" not in args[1]:
-                return json.dumps({
-                    "id": 1,
-                    "user": {"login": "github-actions[bot]"},
-                    "body": body,
-                    "created_at": "2026-09-14T00:00:00Z",
-                }) if body else ""
-            if not body:
-                return ""
-            return json.dumps({
-                    "id": 1,
-                    "user": {"login": "github-actions[bot]"},
-                    "created_at": "2026-09-14T00:00:00Z",
-                    "candidate_kind": "preferred",
-                })
+            jq = args[args.index("--jq") + 1] if "--jq" in args else ""
+            if "ep-review-bot:prd-review" in jq:
+                return comments.get("prd") or ""
+            if "ep-review-bot:design-review" in jq:
+                return comments.get("design") or ""
+            return ""
 
         with patch.object(self.hooks, "_gh", side_effect=fake_gh):
             return self.hooks.check_pr_state(

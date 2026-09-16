@@ -40,11 +40,6 @@ The AAP path for Server Cluster create/delete is already implemented
 (osac-aap PR #447). VPC → Server Cluster in existing VPC → OSAC Subnet
 coexistence and tenant isolation were validated on zeus12.
 
-East-west networking inherits the [Unified Networking deployment support
-boundary](/enhancements/OSAC-1433-unified-networking/design.md#deployment-support-boundary):
-it supports connected deployments only and does not create an air-gapped or
-disconnected networking exception.
-
 ## Motivation
 
 High-performance workloads need high-bandwidth, low-latency east-west
@@ -191,7 +186,7 @@ service FabricDomains {
 
 // NetworkClass extensions (existing resource, new fields)
 message NetworkClassCapabilities {
-  // Existing networking capability: IPv4 only.
+  // existing: supports_ipv4, supports_ipv6, …
   bool supports_east_west_ethernet = 5;
   bool supports_east_west_infiniband = 6;
   bool supports_nvlink = 7;

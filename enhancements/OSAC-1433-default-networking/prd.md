@@ -6,11 +6,6 @@
 | Jira        | https://redhat.atlassian.net/browse/OSAC-1433 |
 | Date        | 2026-07-02 |
 
-This PRD inherits the [Unified Networking deployment support
-boundary](/enhancements/OSAC-1433-unified-networking/prd.md#deployment-support-boundary):
-default networking supports connected deployments only; air-gapped and
-disconnected networking deployments are not supported.
-
 ## 1. Problem Statement
 
 Creating a reachable resource in OSAC requires 6+ sequential API calls:
@@ -25,16 +20,13 @@ where a single create command produces a reachable instance.
 
 ### 2.1 Goals
 
-All default networking resources use canonical IPv4 CIDRs. IPv6 and
-dual-stack networking are not supported.
-
 - A tenant can create a fully connected VM, bare-metal server, or cluster
   (inbound + outbound) with a single API call, without pre-creating any
   networking resources
 - Tenants who need custom networking retain the full explicit workflow —
   simplified creation is additive, not a replacement
-- Auto-provisioned networking resources are visible and follow the unified
-  networking create/read/delete lifecycle; changes require replacement
+- Auto-provisioned networking resources are visible, editable, and follow
+  the same lifecycle as manually created ones
 
 ### 2.2 Non-Goals
 
@@ -67,8 +59,8 @@ dual-stack networking are not supported.
 
 ### Tenant Admin Stories
 
-- As a Tenant Admin, I want to inspect my default networking resources and
-  create replacement networking resources when I need different settings
+- As a Tenant Admin, I want to inspect and customize my default networking
+  resources (e.g., modify SecurityGroup rules) after they are auto-created
 
 ### Cloud Infrastructure Admin Stories
 
@@ -90,26 +82,26 @@ dual-stack networking are not supported.
 #### Default Networking
 
 - **FR-1:** At tenant onboarding, the system provisions a default
-  VirtualNetwork, IPv4 Subnet, SecurityGroup, and NATGateway for the tenant. The tenant
-  transitions to READY only after all
+  VirtualNetwork, IPv4 Subnet, IPv6 Subnet, and SecurityGroup for the
+  tenant (dual-stack). The tenant transitions to READY only after all
   default networking resources are also READY. If default networking
   provisioning fails, the tenant remains in a non-READY state with a
   status condition describing the failure. The Cloud Provider Admin can
   inspect the failure and retry by deleting and re-creating the tenant.
   [User]
 - **FR-2:** The Cloud Infrastructure Admin configures default networking
-  parameters (IPv4 CIDRs and SecurityGroup rules) on the
+  parameters (IPv4 CIDR, IPv6 CIDR, SecurityGroup rules) on the
   NetworkClass. Defaults are required — a NetworkClass without defaults
   is rejected at creation time. [User]
-- **FR-3:** All tenants receive the same default IPv4 CIDR ranges as
-  configured on the NetworkClass. Tenants are isolated at the
+- **FR-3:** All tenants receive the same default CIDR ranges (IPv4 and
+  IPv6) as configured on the NetworkClass. Tenants are isolated at the
   network level — the unified networking API provides VirtualNetworks
   with any IP subnet, and the system enforces isolation regardless of
   overlapping CIDRs between tenants. [User]
-- **FR-4:** Default resources are labeled as defaults and visible in list
-  and detail views. They follow the unified networking create/read/delete
-  contract; changes require delete and recreate, and deletion is blocked while
-  any resource depends on them. [User]
+- **FR-4:** Default resources are labeled as defaults, visible in list
+  and detail views, and editable by the Tenant Admin (e.g., adding
+  SecurityGroup rules). Default resources cannot be deleted while any
+  resource depends on them. [User]
 - **FR-5:** Creating custom VirtualNetworks does not affect default
   resources — both coexist. [User]
 
@@ -130,7 +122,7 @@ dual-stack networking are not supported.
   available ExternalIPPool with the most capacity, allocates an
   ExternalIP, and creates an ExternalIPAttachment binding it to the
   resource. The system selects the pool with the most available capacity
-  using IPv4. When multiple
+  matching the requested IP family (defaulting to IPv4). When multiple
   pools have equal capacity, selection is deterministic but unspecified.
   [User]
 - **FR-9:** Cluster supports `--external-ip-attachment`. When enabled,
@@ -170,13 +162,12 @@ dual-stack networking are not supported.
   `--external-ip-attachment` and no explicit network attachments — the
   server is placed on the default subnet with an auto-provisioned
   ExternalIP
-- [ ] Default VirtualNetwork, IPv4 Subnet, SecurityGroup, and NATGateway
+- [ ] Default VirtualNetwork, Subnets (IPv4 + IPv6), and SecurityGroup
   exist and are READY before the tenant's first resource creation
 - [ ] Default resources appear in list views with a label identifying
   them as defaults
-- [ ] Default networking resources expose only create/read/delete operations;
-  a Tenant Admin can create replacement resources with customized settings once
-  dependencies on the defaults have been removed
+- [ ] A Tenant Admin can modify default SecurityGroup rules (e.g., add
+  ingress rules) and the changes take effect
 - [ ] Deleting a resource with auto-provisioned ExternalIP causes the
   auto-created ExternalIP and ExternalIPAttachment to be cleaned up
   automatically
@@ -186,8 +177,6 @@ dual-stack networking are not supported.
   returns an error and the resource is not persisted
 - [ ] A resource created without explicit network attachments shows the
   resolved default attachments when retrieved via the API
-- [ ] An IPv6 or dual-stack default CIDR is rejected when NetworkClass defaults
-  are validated, and no default resource is persisted from the invalid input
 
 ## 6. Dependencies
 
@@ -197,7 +186,7 @@ dual-stack networking are not supported.
   [Unified Networking EP](/enhancements/OSAC-1433-unified-networking)
 - **OSAC-1712 (automatic pool selection)** — the auto ExternalIP pool
   selection reuses the identical algorithm: pick the READY pool with the
-  most available capacity from the IPv4 pool
+  most available capacity matching the IP family
 - **Tenant onboarding flow** — default resource creation hooks into the
   existing Tenant controller lifecycle
 - **osac-installer** — NetworkClass default configuration must be included

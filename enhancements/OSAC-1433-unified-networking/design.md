@@ -3,11 +3,12 @@ title: Unified Networking API for VMaaS, CaaS, and BMaaS
 authors:
   - dmanor@redhat.com
 creation-date: 2026-06-03
-last-updated: 2026-09-16
+last-updated: 2026-06-10
 tracking-link:
   - https://redhat.atlassian.net/browse/OSAC-1433
 prd: "prd.md"
 see-also:
+  - Networking API: /enhancements/OSAC-356-networking
   - BareMetal Instance API: /enhancements/OSAC-1118-baremetal-instance-api
   - Three-Layer Networking Model: https://docs.google.com/document/d/1MwBjpmYoZoUN3PVjeIRZ2Y6mBuf0lu1uvTtN6XXPPTM
   - VMaaS Networking: /enhancements/OSAC-1435-vmaas-networking
@@ -15,7 +16,7 @@ see-also:
   - BMaaS Networking: /enhancements/OSAC-1437-bmaas-networking
   - Default Networking: /enhancements/OSAC-1433-default-networking
 replaces:
-  - OSAC-356 Networking API (legacy)
+  - /enhancements/OSAC-356-networking
 superseded-by:
   - N/A
 ---
@@ -27,18 +28,6 @@ superseded-by:
 This document describes the technical design for the OSAC unified
 networking architecture. For the problem statement and requirements,
 see the companion [Requirements Document (PRD)](prd.md).
-
-### Deployment Support Boundary
-
-The current OSAC networking contract supports connected deployments only.
-Air-gapped and disconnected networking deployments are outside the supported
-boundary and must not be advertised as supported profiles. A connected
-deployment has reachability among the provider-owned hub, selected network
-managers, provider-controlled networking services, and provider-controlled
-address infrastructure. The provider owns this configuration; connectivity is
-not tenant selectable, and these reachability prerequisites must hold before
-the deployment's NetworkClass is accepted. The boundary applies to
-Fabric-only, K8s-only, and combined manager profiles.
 
 OSAC runs VMs on OpenShift using KubeVirt, which encapsulates each VM in a
 pod. Pod networking is managed by OVN-Kubernetes, meaning VMs live inside an
@@ -66,36 +55,8 @@ The BMaaS integration is based on the `BaremetalInstance` resource defined in
 the [BareMetal Instance API enhancement](/enhancements/OSAC-1118-baremetal-instance-api),
 which provides a per-server resource aligned with ComputeInstance.
 
-All networking resources and manager integrations in this design use IPv4.
-IPv6 and dual-stack networking are not supported.
-
-> **Implementation status:** This is the normative target contract. Current
-> proto/CRD schemas and allocation paths still contain legacy IPv6/dual-stack
-> support; implementation work must enforce this contract before rollout.
-
 For user stories, goals, and non-goals, see the
 [Requirements Document (PRD)](prd.md).
-
-### API operation constraint
-
-The unified networking API supports only create, read, and delete operations
-for networking resources. Read means `List` and `Get`; there is no tenant or
-provider `Update`/`Patch` operation for a networking resource's specification
-or metadata. The affected resources are `NetworkClass`, `VirtualNetwork`,
-`Subnet`, `SecurityGroup`, `ExternalIPPool`, `ExternalIP`,
-`ExternalIPAttachment`, and `NATGateway`.
-
-All networking resource specification and metadata fields are immutable after
-creation. A change requires deleting the resource and creating a replacement,
-subject to the normal
-dependency guards. The network attachment fields on `ComputeInstance`,
-`Cluster`, and `BaremetalInstance` are create-time-only as well; changing a
-network attachment requires replacing the parent workload. Controllers may
-update status, conditions, readiness, and IP-discovery fields during
-reconciliation, but those internal writes are not additional API operations.
-This is the normative contract for the VMaaS, CaaS, and BMaaS designs that
-reference this document; those designs inherit it and do not redefine
-networking operations.
 
 ## Proposal
 
@@ -153,10 +114,9 @@ metadata:
 spec:
   fabricManager: netris
   k8sManager: cudn_localnet
-capabilities:
-  supportsIpv4: true
-  supportsIpv6: false
-  supportsDualStack: false
+status:
+  capabilities:
+    addressFamily: dualStack
 ```
 
 **Neutron + CUDN (VMs and BM):**
@@ -169,10 +129,9 @@ metadata:
 spec:
   fabricManager: neutron
   k8sManager: cudn_localnet
-capabilities:
-  supportsIpv4: true
-  supportsIpv6: false
-  supportsDualStack: false
+status:
+  capabilities:
+    addressFamily: ipv4
 ```
 
 **BM-only deployment (no VMs):**
@@ -184,32 +143,34 @@ metadata:
   name: gpu-region-1
 spec:
   fabricManager: netris
-capabilities:
-  supportsIpv4: true
-  supportsIpv6: false
-  supportsDualStack: false
+status:
+  capabilities:
+    addressFamily: ipv4
 ```
 
 #### Capabilities
 
 Capabilities are **inferred from the assigned managers** and published in
-the NetworkClass `capabilities` field — the provider does not set them
-manually. The operator computes the intersection of capabilities declared by
-the assigned manager ConfigMaps and populates `capabilities` automatically. For
-a BM-only NetworkClass without a `k8sManager`, the absent manager is excluded
-from this intersection; only the configured `fabricManager` contributes
-capabilities.
+the NetworkClass status — the provider does not set them manually. The
+operator computes the intersection of capabilities declared by the fabric
+manager and k8sManager ConfigMaps and populates `status.capabilities`
+automatically.
 
-The supported deployment boundary is IPv4-only. Managers must advertise the
-`ipv4` capability. IPv6 and dual-stack manager registrations are rejected,
-and NetworkClass capability output must be `supportsIpv4: true` with
-`supportsIpv6: false` and `supportsDualStack: false`.
+If the provider needs to restrict a capability that the managers support
+(e.g., disable IPv6 in a deployment even though the fabric manager supports
+it), they can set `spec.disableCapabilities`:
+
+```yaml
+spec:
+  fabricManager: netris
+  k8sManager: cudn_localnet
+  disableCapabilities:
+    - ipv6
+```
 
 | Capability | Type | Meaning |
 |-----------|------|---------|
-| `supportsIpv4` | bool | IPv4 addressing is available; `true` for OSAC networking |
-| `supportsIpv6` | bool | IPv6 addressing; always `false` |
-| `supportsDualStack` | bool | IPv4 + IPv6 addressing; always `false` |
+| `addressFamily` | enum | `ipv4`, `ipv6`, or `dualStack` |
 | `dpuSupport` | bool | DPU-accelerated networking available |
 
 The set of capabilities is defined by the operator and is fixed — adding a
@@ -231,11 +192,11 @@ metadata:
   name: fabric-manager-netris
   namespace: osac
   labels:
-    osac.openshift.io/network-fabric-manager: "true"
+    osac.openshift.io/network/fabric-manager: "true"
 data:
   name: netris
   description: "Netris SDN — tenant isolation, ACL, IPAM, DNAT, SNAT"
-  capabilities: "ipv4"
+  capabilities: "addressFamily:ipv4"
 ```
 
 ```yaml
@@ -245,11 +206,11 @@ metadata:
   name: fabric-manager-neutron
   namespace: osac
   labels:
-    osac.openshift.io/network-fabric-manager: "true"
+    osac.openshift.io/network/fabric-manager: "true"
 data:
   name: neutron
   description: "OpenStack Neutron — tenant isolation, IPAM, floating IPs"
-  capabilities: "ipv4"
+  capabilities: "addressFamily:ipv4"
 ```
 
 **K8s managers:**
@@ -261,11 +222,11 @@ metadata:
   name: k8s-manager-cudn-localnet
   namespace: osac
   labels:
-    osac.openshift.io/network-k8s-manager: "true"
+    osac.openshift.io/network/k8s-manager: "true"
 data:
   name: cudn_localnet
   description: "CUDN with LocalNet — bridges OVN overlay to physical fabric"
-  capabilities: "ipv4"
+  capabilities: "addressFamily:dualStack"
 ```
 
 The operator discovers managers by listing ConfigMaps with the appropriate
@@ -386,31 +347,13 @@ ExternalIPAttachment (tenant-managed)
 ### ExternalIPPool
 
 "External" in ExternalIPPool/ExternalIP means **external to the
-VirtualNetwork**. In the supported connected deployment boundary, the
-provider creates pools with addresses routable in the provider's connected
-network. The API does not require Internet reachability, but air-gapped and
-disconnected networking deployments are not supported.
+VirtualNetwork** — not necessarily internet-routable. In air-gapped
+environments, the provider creates pools with data-center-routable IPs. In
+internet-connected environments, the pools contain internet-routable IPs.
+The API and flow are identical regardless of the deployment topology.
 
 ExternalIPPools are provider-managed and deployment-scoped. The fabric
 manager handles ExternalIP allocation — one pool serves all resource types.
-Each pool uses exactly one canonical IPv4 CIDR. The API's repeated `cidrs`
-field is retained for compatibility, but validation rejects an empty list or
-more than one entry; IPv6 and dual-stack pools are not supported.
-Pool creation requires `spec.ipFamily` to be `IP_FAMILY_IPV4`;
-`IP_FAMILY_UNSPECIFIED`, IPv6, and dual-stack values are rejected before
-persistence.
-
-#### Address-Family and CIDR Contract
-
-All user-supplied network CIDRs use canonical dotted-decimal IPv4 notation
-(`a.b.c.d/prefix`) with host bits zero. A Subnet CIDR must be contained by its
-parent VirtualNetwork and sibling Subnet CIDRs must not overlap. Provider and
-controller-produced addresses are canonical IPv4 addresses without a CIDR
-suffix. Any IPv6, dual-stack, malformed, or non-canonical value is rejected
-before persistence or backend dispatch.
-All explicit and automatic ExternalIP allocation paths, including per-service
-auto-provisioning, must request `IP_FAMILY_IPV4`; `IP_FAMILY_UNSPECIFIED` is
-not a valid default for this contract.
 
 ### End-to-End Flows
 
@@ -813,7 +756,8 @@ in the VN — VMs, BM servers, cluster nodes — since all are on the fabric.
 ```protobuf
 message VirtualNetworkSpec {
   string network_class = 1; // required, immutable
-  string ipv4_cidr = 2;     // required canonical IPv4 CIDR, immutable
+  string ipv4_cidr = 2;     // optional, immutable
+  string ipv6_cidr = 3;     // optional, immutable
 }
 ```
 
@@ -899,7 +843,7 @@ resource.
 ```protobuf
 message ComputeNetworkAttachment {
   string subnet = 1;                    // Subnet ID, required, immutable
-  repeated string security_groups = 2;  // SecurityGroup IDs, optional, immutable
+  repeated string security_groups = 2;  // SecurityGroup IDs, optional, mutable
   bool primary = 3;                     // optional, immutable: designates default gateway
 }
 ```
@@ -913,7 +857,7 @@ primary designation and default gateway semantics.
 ```protobuf
 message BareMetalNetworkAttachment {
   string subnet = 1;                    // Subnet ID, required, immutable
-  repeated string security_groups = 2;  // SecurityGroup IDs, optional, immutable
+  repeated string security_groups = 2;  // SecurityGroup IDs, optional, mutable
   string interface = 3;                 // optional, immutable: physical port name from BareMetalInstanceType
   bool primary = 4;                     // optional, immutable: designates default gateway
 }
@@ -932,7 +876,7 @@ discovery and multi-interface examples.
 ```protobuf
 message ClusterNetworkAttachment {
   string subnet = 1;                    // Subnet ID, required, immutable
-  repeated string security_groups = 2;  // SecurityGroup IDs, optional, immutable
+  repeated string security_groups = 2;  // SecurityGroup IDs, optional, mutable
 }
 ```
 
@@ -1347,8 +1291,8 @@ time. Creates ambiguous subnet state and complicates the tenant experience.
    part of the tenant API or NetworkClass spec.
 
 8. **ExternalIP naming.** "External" means external to the VirtualNetwork —
-   not necessarily Internet-routable. This applies within the supported
-   connected deployment boundary.
+   not necessarily internet-routable. Applies equally to air-gapped and
+   internet-connected deployments.
 
 9. **network_attachments immutability.** Network attachments are immutable
    after resource creation. Changing network attachment requires recreating
@@ -1364,11 +1308,6 @@ time. Creates ambiguous subnet state and complicates the tenant experience.
     type has a different selector concept (virtual NIC, physical interface,
     node set) — a shared type with optional fields would accumulate
     dead weight per resource type.
-
-12. **Create/read/delete networking API.** Networking resource specifications,
-    metadata, and workload network attachment fields are immutable after
-    creation. The supported change path is delete and recreate; controller
-    status reconciliation is internal and does not expose an update operation.
 
 ## Test Plan
 
