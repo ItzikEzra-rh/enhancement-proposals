@@ -1,0 +1,69 @@
+{
+  "inputs": {
+    "experiment": "Built-in design phases WITH retained OSAC repository guidance",
+    "source": "554e5a07ada757ac85c22287e94533d19995555e",
+    "workflow": "f1d6a4b645ac7ea6c8dfce49c36f7bf826b75a05",
+    "skills_base": "eebea9556abf05abc6390313537aa02b34cd79fa",
+    "docs": "b912d50fbdab9c92b2db37d2d3da7ffc8ddf42db",
+    "osac-ui": "a0641538f7a20cb0e1083c5596341658d800983e",
+    "osac-ux": "db7d85b65e3b9c0fbe39edb87f1378f453f6c653",
+    "approved_inputs_sha256": {
+      "prd.md": "1606dc76d10d21b6657af91717057949ec1ac63e60f7bb7afdff41a48313f104",
+      "design.md": "9fcc2b6612ad7fb5ce6150ec1355383f55ae7d1f0b651194d82f04aeee3bf61a"
+    },
+    "planning_skill_sha256": null,
+    "overrides_sha256": {},
+    "guidance_sha256": {
+      "AGENTS.md": "316f2a6ba109a9b841a0b3df797c365a7903e95d9315c862ef8c0cee9bc2d27c",
+      "docs/INTEGRATION-TESTING.md": "9687b1aac1e62ee21d180381bf4cd831195bca9474baad8325feeda1b95a1f97"
+    }
+  },
+  "artifacts": [
+    {
+      "file": "design/04-testplan.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/04-testplan.md",
+      "sha256": "45fbdcd593034f4090e83b601fe323905fd0cb82b20fd4ea71643f624bad7b7b"
+    },
+    {
+      "file": "design/05-epics.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/05-epics.md",
+      "sha256": "83d6d113d2d7bc6b21eb7af0e9fa0d7032f4c4a253b0b13152460cd1069b9c03"
+    },
+    {
+      "file": "design/07-coverage.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/07-coverage.md",
+      "sha256": "15037923cd18665b4d51d1da5ac00afe9cff365c7cea186201c6ebd7cf9734ca"
+    },
+    {
+      "file": "e2e/02-plan.md",
+      "original_artifact": ".artifacts/e2e/OSAC-4542/02-plan.md",
+      "sha256": "0b3afea496b0c45e4c0c4b2b6ea86637c9a9fe4c8d432d57c40e82073fb104f2"
+    },
+    {
+      "file": "design/06-stories/epic-1-public-volume-read-api.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1-public-volume-read-api.md",
+      "sha256": "5ea127867950bcc4680509a06cdabfbb6ab00944652a19ec5c4377b0b3d3c08a"
+    },
+    {
+      "file": "design/06-stories/epic-1/story-04-api-documentation-and-cli-usage.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1/story-04-api-documentation-and-cli-usage.md",
+      "sha256": "8ed222043a9f0eec4f0272b6ba5b7a65e0e1991f22a3c283c846adbdbc7549ed"
+    },
+    {
+      "file": "design/06-stories/epic-1/story-03-public-volume-e2e-validation.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1/story-03-public-volume-e2e-validation.md",
+      "sha256": "2c86c2e1f217e7ce90f1191eb754382fcf860dd4219bbced72be6a20b7866c22"
+    },
+    {
+      "file": "design/06-stories/epic-1/story-02-list-visibility-and-lifecycle-behavior.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1/story-02-list-visibility-and-lifecycle-behavior.md",
+      "sha256": "e86f1e364699652740cdf98b30e83fd1123379ce9546082caffe1a7490f75c92"
+    },
+    {
+      "file": "design/06-stories/epic-1/story-01-public-volume-contract-and-endpoints.md",
+      "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1/story-01-public-volume-contract-and-endpoints.md",
+      "sha256": "5a2746af453de46c8681ac92a61649738b1b652b8e052e8b47c5c64e89daa816"
+    }
+  ],
+  "e2e_plan_status": "After one explicitly requested reconciliation; original pre-reconciliation plan not included."
+}
