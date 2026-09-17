@@ -92,7 +92,10 @@ One explicitly requested reconciliation changed only the local E2E plan:
 The copied E2E plan is the reconciled version. Its correction table records the
 changes; this package does not include a preserved pre-reconciliation plan.
 The design test plan and decomposition copies were not rewritten during that
-reconciliation. All nine copied artifacts match their local sources byte-for-byte.
+reconciliation. Seven copied artifacts match their local sources byte-for-byte.
+The repository's end-of-file hook removed surplus trailing blank lines from the
+epic summary and DEV Story 1.01 copies only; their text is otherwise unchanged.
+The manifest records original and published hashes for these two copies.
 
 ## Limits and open findings
 

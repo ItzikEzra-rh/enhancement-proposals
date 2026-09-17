@@ -39,4 +39,3 @@ PRD Requirements: FR-1, FR-5, FR-7
 Design section: Proposal, Workflow Description, API Extensions, Implementation Details/Notes/Constraints, Security Considerations, RBAC / Tenancy
 Interface Changes: IC-1, IC-2, IC-3
 Validated by: TC-FR1-01, TC-FR1-02, TC-FR2-02, TC-FR5-01, TC-FR5-02, TC-FR7-01, TC-FR7-02
-

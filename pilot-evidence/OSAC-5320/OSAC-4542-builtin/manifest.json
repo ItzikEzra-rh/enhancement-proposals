@@ -42,7 +42,9 @@
     {
       "file": "design/06-stories/epic-1-public-volume-read-api.md",
       "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1-public-volume-read-api.md",
-      "sha256": "5ea127867950bcc4680509a06cdabfbb6ab00944652a19ec5c4377b0b3d3c08a"
+      "original_sha256": "5ea127867950bcc4680509a06cdabfbb6ab00944652a19ec5c4377b0b3d3c08a",
+      "sha256": "03d13aab891fe743129fb44585cc321c18e2cb476cb4391f66e210f6cda982f6",
+      "publication_adjustment": "Removed surplus trailing blank lines via repository end-of-file-fixer hook; no other changes."
     },
     {
       "file": "design/06-stories/epic-1/story-04-api-documentation-and-cli-usage.md",
@@ -62,7 +64,9 @@
     {
       "file": "design/06-stories/epic-1/story-01-public-volume-contract-and-endpoints.md",
       "original_artifact": ".artifacts/design/OSAC-4542/06-stories/epic-1/story-01-public-volume-contract-and-endpoints.md",
-      "sha256": "5a2746af453de46c8681ac92a61649738b1b652b8e052e8b47c5c64e89daa816"
+      "original_sha256": "5a2746af453de46c8681ac92a61649738b1b652b8e052e8b47c5c64e89daa816",
+      "sha256": "3f3abfd04c4bbb18f4fcf136f822c086091d68e9f48ac121e6b516578b50f37d",
+      "publication_adjustment": "Removed surplus trailing blank lines via repository end-of-file-fixer hook; no other changes."
     }
   ],
   "e2e_plan_status": "After one explicitly requested reconciliation; original pre-reconciliation plan not included."

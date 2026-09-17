@@ -19,4 +19,3 @@ This epic gives tenant users, tenant admins, and Cloud Provider Admins a support
 Feature: OSAC-4542 — Volume Get/List Public API
 PRD Requirements: FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8
 Design sections: Summary, Proposal, Workflow Description, API Extensions, Implementation Details/Notes/Constraints, Failure Handling and Recovery, RBAC / Tenancy, Test Plan
-
