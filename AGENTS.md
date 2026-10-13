@@ -66,3 +66,8 @@ Hooks:
 - `/test-plan-score` retries scoring on the current head. `/test-plan-respond`
   does not pass the gate itself; same-repository revisions are scored again,
   and fork revisions must be applied before re-scoring.
+- Cite large source files as `component/path/file.go:100-160` to provide an
+  explicit inclusive line excerpt from the pinned OSAC checkout. The review
+  records omitted lines; an unqualified citation includes the full file.
+  Required component guidance is always included in full. Invalid ranges and
+  oversized context fail the check before any model request.
