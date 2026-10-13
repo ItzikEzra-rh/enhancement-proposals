@@ -2,6 +2,7 @@
 
 import base64
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -206,6 +207,25 @@ class VertexCallSecurityTests(unittest.TestCase):
                           model.call_args.args[0])
             self.assertTrue((work_dir / "testplan-output.md").exists())
             self.assertFalse((work_dir / ".git").exists())
+
+    def test_truncated_response_logs_usage_and_never_publishes(self):
+        hooks = Mock()
+        hooks.build_prompt.return_value = "trusted instructions"
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            tp_review, "render_prompt", return_value="context"
+        ), patch.object(tp_review, "complete", return_value=(
+            "partial response", {"input_tokens": 123, "output_tokens": 12000,
+                                 "stop_reason": "max_tokens"}
+        )), patch.object(tp_review, "get_pull_request") as current, patch(
+            "sys.stdout", new_callable=io.StringIO
+        ) as stdout:
+            with self.assertRaisesRegex(RuntimeError, "max_tokens"):
+                tp_review.run_review(hooks, "test-plan-review", "TP-42",
+                                     {"number": 42}, Path(directory) / "review",
+                                     model="test-model")
+            self.assertIn("123 in / 12000 out", stdout.getvalue())
+        current.assert_not_called()
+        hooks.apply_labels.assert_not_called()
 
     def test_score_mode_still_validates_and_posts_a_structured_verdict(self):
         hooks = TestPlanHooks(

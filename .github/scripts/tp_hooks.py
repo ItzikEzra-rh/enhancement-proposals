@@ -378,7 +378,11 @@ class TestPlanHooks:
             "Use the context files (.context/osac-test-strategy.md, etc.) to "
             "ground any new or revised test scenarios.\n\n"
             "Return the complete revised TestPlan.md as your response. Do not "
-            "wrap it in a Markdown code fence or add commentary. Preserve the "
+            "wrap it in a Markdown code fence or add commentary. Keep the complete "
+            "revision within 12000 output tokens: retain every required scenario "
+            "and concrete expected result, but use source citations instead of "
+            "duplicating long PRD/design quotations or repeated audit prose. "
+            "Preserve requirement mappings and execution evidence. Preserve the "
             "YAML frontmatter."
         )
 
@@ -653,9 +657,18 @@ class TestPlanHooks:
         import base64
 
         content = base64.b64encode(output.read_bytes()).decode("ascii")
+        issue = re.match(r"^(OSAC-\d+|NO-ISSUE):", ticket.get("title", ""))
+        prefix = issue.group(1) if issue else "NO-ISSUE"
+        message = (
+            f"{prefix}: revise test plan based on review feedback\n\n"
+            "Signed-off-by: github-actions[bot] "
+            "<41898282+github-actions[bot]@users.noreply.github.com>\n"
+            "Assisted-by: Test Plan Review (Claude on Vertex AI) "
+            "<noreply@anthropic.com>"
+        )
         self._gh([
             "api", f"repos/{head_repo}/contents/{testplan_path}", "-X", "PUT",
-            "-f", "message=Revise TestPlan.md based on review feedback",
+            "-f", f"message={message}",
             "-f", f"content={content}",
             "-f", f"sha={testplan_sha}",
             "-f", f"branch={head_branch}",

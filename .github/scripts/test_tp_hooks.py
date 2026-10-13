@@ -265,7 +265,7 @@ class ApplyRespondTests(unittest.TestCase):
             with patch.object(hooks, "_gh", return_value="") as gh:
                 hooks._apply_respond(
                     "TP-42", {}, tmpdir,
-                    ticket={"_ep_slug": "osac-42"},
+                    ticket={"_ep_slug": "osac-42", "title": "OSAC-42: read API"},
                 )
 
         args = gh.call_args.args[0]
@@ -273,10 +273,30 @@ class ApplyRespondTests(unittest.TestCase):
             "api", "repos/test/repo/contents/enhancements/osac-42/TestPlan.md"
         ])
         self.assertIn("PUT", args)
+        message = next(arg for arg in args if arg.startswith("message="))
+        self.assertTrue(message.startswith("message=OSAC-42:"))
+        self.assertIn("Signed-off-by: github-actions[bot]", message)
+        self.assertIn("Assisted-by: Test Plan Review (Claude on Vertex AI)", message)
+        self.assertNotIn("Co-Authored-By", message)
         self.assertIn("sha=existing-file-sha", args)
         self.assertIn("branch=test-plan/osac-42", args)
         encoded = args[args.index("-f", args.index("-f") + 1) + 1]
         self.assertEqual(base64.b64decode(encoded.removeprefix("content=")).decode(), revised)
+
+    def test_response_commit_uses_safe_no_issue_fallback(self):
+        hooks = TestPlanHooks(repo="test/repo", skills_path="/tmp", shadow=False,
+                              pr_data={"head_repo": "test/repo", "head_branch": "pilot",
+                                       "testplan_path": "enhancements/osac-42/TestPlan.md",
+                                       "testplan_sha": "blob"})
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "testplan-output.md").write_text("x" * 600)
+            for title in ("plain title", "prefix\nOSAC-42: embedded issue"):
+                with self.subTest(title=title), patch.object(hooks, "_gh") as gh:
+                    hooks._apply_respond("TP-42", {}, directory, ticket={"title": title})
+                message = next(arg for arg in gh.call_args.args[0]
+                               if arg.startswith("message="))
+                self.assertTrue(message.startswith("message=NO-ISSUE:"))
+                self.assertNotIn(title, message)
 
     def test_apply_respond_does_not_try_to_write_a_fork(self):
         hooks = TestPlanHooks(
