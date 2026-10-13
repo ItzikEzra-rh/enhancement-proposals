@@ -527,20 +527,20 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 1. Start the dedicated Kind fulfillment integration environment using E-I's
    existing installer command. Reuse the private admin connection and real
-   Keycloak admin helper from `fulfillment-service/it/it_catalog_items_fixtures_test.go`
+   Keycloak admin helper from `fulfillment-service/it/it_catalog_items_fixtures_test.go:494-553`
    (`createCatalogItemTenantAdminFixture`, `tool.KeycloakAdminRequest`). Add a
    proposed `createVolumeProjectReadFixture` helper to `it_public_volumes_test.go`.
 2. Create unique tenants A and B with private `Tenants/Create`, await their
    synchronization, and create named projects project1/project3 in A and project2
    in B with private `Projects/Create`: metadata tenant and name, spec title.
    This shape is demonstrated by
-   `fulfillment-service/internal/servers/private_projects_server_test.go`.
+   `fulfillment-service/internal/servers/private_projects_server_test.go:40-115`.
 3. Create two ordinary test users in A through the real lab Keycloak admin API,
    leave one as an ordinary tenant member and grant the other the existing
    `tenant-admin` realm role using the fixture pattern, log in through
    `tool.makeKeycloakTokenSource`, and use `tool.makeGrpcConn` for the public
    connection. The existing login pattern is in
-   `fulfillment-service/it/it_catalog_items_fixtures_test.go`. Keep each user's
+   `fulfillment-service/it/it_catalog_items_fixtures_test.go:872-892` (`createCatalogItemMemberFixture`). Keep each user's
    Fulfillment User ID after first authentication. Do not use a provider-admin
    token or the break-glass account for the restricted subjects.
 4. Using private `ProjectMemberships/Create`, set metadata tenant=A,
@@ -548,7 +548,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
    each user's ID. Wait for membership status READY, then obtain fresh JWTs.
    The authoritative shapes and state are in
    `proto/private/osac/private/v1/project_membership_type.proto`; reconciliation
-   is in `fulfillment-service/internal/controllers/projectmembership/project_membership_reconciler_function.go`.
+   is in `fulfillment-service/internal/controllers/projectmembership/project_membership_reconciler_function.go:245-328`.
    Do not grant project3 or B to either subject.
 5. Preflight the authenticated entitlements: the JWT organization claim for A
    includes `/project1/system:viewers`, excludes project3, and neither user has
@@ -588,9 +588,10 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 3. Deploy/configure the real VAST CSI controller endpoint; enable the operator
    volume controller (`OSAC_ENABLE_VOLUME_CONTROLLER`) and provider routing
    (`OSAC_VENDOR_CONTROLLERS` with the vast provider and actual controller
-   endpoint). Existing parsing/registration is in `osac-operator/cmd/main.go`
+   endpoint). Existing parsing/registration is in `osac-operator/cmd/main.go:737-870`
    (`parseVendorControllers`, `setupVolumeControllers`,
-   `newVendorProvisionerRegistry`). This is runtime lab configuration, not a
+   `newVendorProvisionerRegistry`), with environment names in
+   `osac-operator/cmd/main.go:80-150`. This is runtime lab configuration, not a
    proposed new installer value or a networking API change.
 4. Configure AAP's existing tenant storage onboarding templates and enable the
    storage controller. Onboard test tenants and await StorageBackendReady using
