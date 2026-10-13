@@ -370,3 +370,14 @@ class GroundingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PlanningPromptTests(unittest.TestCase):
+    def test_scoring_distinguishes_planned_coverage_from_execution(self):
+        with scoring_fixture() as skills:
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills))
+            prompt = hooks._score_prompt()
+        self.assertIn('planning gate, not an execution gate', prompt)
+        self.assertIn('can receive Grounding 2 before they', prompt)
+        self.assertIn('missing required case still caps readiness', prompt)
+        self.assertIn('faked required boundary still triggers Rework', prompt)
