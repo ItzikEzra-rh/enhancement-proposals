@@ -508,7 +508,7 @@ The canonical ownership follows `docs/INTEGRATION-TESTING.md`, `fulfillment-serv
 | Row | Behavior / requirements / cases | Component / owner / tier / boundary | Location and execution | Prerequisites and real/faked dependencies | Readiness / status / follow-up |
 |---|---|---|---|---|---|
 | E-U | FR1/2/5/8, IC1/3; TC-FR1-02, TC-FR2-02, TC-FR5-01, TC-FR5-02, TC-FR5-03, TC-FR8-01, TC-FR8-03 | fulfillment-service, DEV-READ [DEV], Unit; in-process public/private delegation, mapper and generated descriptor assertions | Extend `fulfillment-service/internal/servers/volumes_server_test.go`, `fulfillment-service/internal/servers/private_volumes_server_test.go`; fixtures in `fulfillment-service/internal/servers/servers_suite_test.go`. Existing command `ginkgo run --timeout 10m internal/servers`, cwd `fulfillment-service/`, defined in component AGENTS.md. New generator fault fixture proposed in same suite. | Go/Ginkgo and suite database transaction setup required; database may be real as suite setup but assertions are in-process; tier resolver, mapper/delegate error seams simulated; no real provider/operator/AAP. | not run; suite paths exist but new frozen-contract cases proposed; current lifecycle code differs from frozen read-only oracle. Implementation work owned DEV-READ; no separate follow-up ticket allocated. |
-| E-I | FR1/2/3/4/6/7, IC1/2/3; TC-FR1-01, TC-FR2-01, TC-FR3-01, TC-FR3-02, TC-FR3-03, TC-FR4-01, TC-FR4-02, TC-FR4-03, TC-FR6-01, TC-FR6-02, TC-FR7-01, TC-FR7-02 | fulfillment-service, DEV-READ [DEV], Integration (canonical component-integration); client→deployed API→JWT/OPA/tenancy→private delegate→PostgreSQL | Extend `fulfillment-service/it/it_public_volumes_test.go` and `fulfillment-service/it/it_volume_lifecycle_test.go`; clients/setup in `fulfillment-service/it/it_suite_test.go`. Existing command from root: `make -C osac-installer test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`, defined in `osac-installer/Makefile` / `fulfillment-service/AGENTS.md`. | Dedicated fresh osac-dev Kind, KUBECONFIG, host mappings, install-infra and service image, real API/gateway/PostgreSQL/auth; private admin clients seed fixtures with DeferCleanup. Storage provider/operator/AAP omitted deliberately: this boundary validates inventory projection/isolation, not provisioning. CLI harness builds checkout CLI. Project restriction fixture extension proposed; row predicates use standard tenancy, no new product field. | not run; existing harness available; extensions proposed; fixture setup for project restriction must use standard tenancy. DEV-READ owns implementation and fixture work; no separate follow-up ticket allocated. |
+| E-I | FR1/2/3/4/6/7, IC1/2/3; TC-FR1-01, TC-FR2-01, TC-FR3-01, TC-FR3-02, TC-FR3-03, TC-FR4-01, TC-FR4-02, TC-FR4-03, TC-FR6-01, TC-FR6-02, TC-FR7-01, TC-FR7-02 | fulfillment-service, DEV-READ [DEV], Integration (canonical component-integration); client→deployed API→JWT/OPA/tenancy→private delegate→PostgreSQL | Extend `fulfillment-service/it/it_public_volumes_test.go` and `fulfillment-service/it/it_volume_lifecycle_test.go`; clients/setup in `fulfillment-service/it/it_suite_test.go`. Existing command from root: `make -C osac-installer test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`, defined in `osac-installer/Makefile` / `fulfillment-service/AGENTS.md`. | Dedicated fresh osac-dev Kind, KUBECONFIG, host mappings, install-infra and service image, real API/gateway/PostgreSQL/auth; private admin clients seed fixtures with DeferCleanup. Storage provider/operator/AAP omitted deliberately: this boundary validates inventory projection/isolation, not provisioning. CLI harness builds checkout CLI. Project restriction fixture extension proposed; row predicates use standard tenancy, no new product field. Existing `it_public_volumes_test.go` covers basic Get/List shape and cross-tenant exclusion (TC-FR1-01, TC-FR2-01, TC-FR3-01/02/03, TC-FR6-01/02, TC-FR7-01/02). TC-FR4-01 project-restriction assertions and TC-FR4-03 OPA-disable/restore assertions require proposed fixture extensions that use the standard `DetermineVisibleTenants` tenancy setup and OPA configuration helpers already present in the IT suite. TC-FR4-02 shared-scope and Cloud Provider Admin assertions reuse existing multi-tenant seed but add a shared-scope volume fixture. | not run; existing harness available; extensions proposed; fixture setup for project restriction must use standard tenancy. DEV-READ owns implementation and fixture work; no separate follow-up ticket allocated. |
 | E-E | FR8 and design E2E, IC1/2/3; TC-FR8-02 | tests/e2e, QE-READ [QE], E2E; provisioner/provider→inventory→public read→tenant client | Proposed `tests/e2e/storage/test_volume_public_reads.py`, following cleanup/polling in existing `tests/e2e/storage/test_tenant_storage_lifecycle.py`, `tests/e2e/vmaas/regression/test_compute_instance_storage_tier.py`, shared `tests/e2e/conftest.py`, `tests/e2e/core/grpc_client.py`, `tests/e2e/core/runner.py`. Proposed command `uv run pytest tests/e2e/storage/test_volume_public_reads.py`, cwd OSAC root (pytest execution pattern defined by tests/e2e/AGENTS.md; new file does not yet exist). | Real deployed fulfillment/PostgreSQL/auth, operator, AAP and real storage provider; tenant A/B credentials, tier/backend, private volume provisioning client and cleanup helper to be added. No mocked provider or reconciliation. Standard bounded polling, no product timing SLA invented. | not run; proposed harness, private provision/read helper additions and disposable full environment required. QE-READ owns work; QE-READ [QE] owns the proposed harness and private Volume gRPC client additions; no assigned person or separate infrastructure ticket exists, explicitly unresolved. This is disclosed setup work, not an omitted required E2E case. Existing storage lifecycle may use mock VMS; that variant cannot prove this real provider boundary. |
 | E-M | FR7, IC1/2/3; TC-FR7-03 | osac-ui consumer, UI-READ [QE], E2E; manual deployed browser→gateway→service | Manual browser procedure in case; cwd N/A because browser execution; new UI consumer work OSAC-4546/4547, generated types under `osac-ui/libs/types` | Real console, API/auth/PostgreSQL, tenant credentials, seeded private volume; provisioning omitted because separate E-E proves it | not run; consumer UI delivery tracked [OSAC-4546](https://redhat.atlassian.net/browse/OSAC-4546) / [OSAC-4547](https://redhat.atlassian.net/browse/OSAC-4547); no result claimed |
 
@@ -530,7 +530,8 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. As tenant A, call public Volumes.Get(id=vol-a), then Volumes.List.
+1. As tenant A, call public Volumes.Get(id=vol-a).
+2. As tenant A, call public Volumes.List.
 
 ##### Expected Results
 
@@ -573,7 +574,11 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. List; Get by returned id; Get using alpha or Human Alpha as request id; repeat Get/List without writes.
+1. Call public Volumes.List and record the id of vol-a from the response.
+2. Call public Volumes.Get(id=<recorded id>).
+3. Call public Volumes.Get(id=alpha).
+4. Call public Volumes.Get(id=Human Alpha).
+5. Repeat steps 1–2 without any intervening writes.
 
 ##### Expected Results
 
@@ -594,7 +599,12 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Inspect private fixture validation; reject Alpha! and duplicate alpha within A; read both valid objects through public Get with entitled subjects.
+1. Attempt to create a private fixture with name Alpha! — expect rejection.
+2. Create private fixture with name alpha in tenant A / project P1.
+3. Attempt to create a second private fixture with name alpha in the same tenant A / project P1 — expect rejection.
+4. Create private fixture with name alpha in tenant B / project P2.
+5. Call public Volumes.Get for each valid volume using their respective entitled subjects.
+6. Verify the public projection of each volume.
 
 ##### Expected Results
 
@@ -617,7 +627,9 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. List(offset=1,limit=2); List with offset beyond total; List without filter.
+1. Call public Volumes.List(offset=1, limit=2).
+2. Call public Volumes.List(offset=10, limit=2) where offset exceeds total.
+3. Call public Volumes.List with no filter, offset, or limit.
 
 ##### Expected Results
 
@@ -637,7 +649,9 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. List(filter='this.status.state == "available"'); List with invalid CEL and filter referencing this.status.backend.
+1. Call public Volumes.List(filter='this.status.state == "available"').
+2. Call public Volumes.List(filter='this.status.state ===').
+3. Call public Volumes.List(filter='this.status.backend == "secret-backend"').
 
 ##### Expected Results
 
@@ -657,13 +671,94 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. List(order="spec.size_gib asc"); List(order="spec.size_gib desc"); List(order="status.backend asc").
+1. Call public Volumes.List(order="spec.size_gib asc").
+2. Call public Volumes.List(order="spec.size_gib desc").
+3. Call public Volumes.List(order="status.backend asc").
 
 ##### Expected Results
 
 - **A-FR3-03-1**: Ascending size order is b,c,a, with implicit secondary id asc.
 - **A-FR3-03-2**: Descending size order is a,b,c, retaining secondary id asc.
 - **A-FR3-03-3**: Private-field order returns InvalidArgument. This is the approved PRD oracle despite the design describing historical DAO drift.
+
+### FR4: local approved behavior group
+
+#### TC-FR4-01: Tenant- and project-scoped row visibility
+
+| Story | AC | Priority | Automation | Tier | Owner | Evidence |
+|---|---|---|---|---|---|---|
+| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+
+##### Preconditions
+
+- Private-path vol-a in tenant A / project P1, vol-b in tenant B / project P2, vol-c in tenant C / project P3. Tenant A Tenant User and Tenant Admin credentials with identical entitlements scoped to tenant A / project P1.
+
+##### Steps
+
+1. As Tenant User of tenant A, call public Volumes.List.
+2. As Tenant User of tenant A, call public Volumes.Get(id=vol-a).
+3. As Tenant Admin of tenant A, call public Volumes.List.
+4. As Tenant Admin of tenant A, call public Volumes.Get(id=vol-a).
+5. As Tenant User of tenant A, call public Volumes.Get(id=vol-b).
+6. As Tenant User of tenant A, call public Volumes.Get(id=vol-c).
+7. As Tenant User of tenant A, call public Volumes.Get(id=missing).
+
+##### Expected Results
+
+- **A-FR4-01-1**: List includes vol-a and excludes vol-b and vol-c for both roles.
+- **A-FR4-01-2**: Get(vol-a) succeeds for both roles.
+- **A-FR4-01-3**: Invisible vol-b/vol-c and nonexistent missing all return NotFound, with no existence leak.
+- **A-FR4-01-4**: Tenant User and Tenant Admin have identical row visibility for identical entitlements. Fixture setup must establish project restrictions through the existing tenancy mechanism; no invented API parameter.
+
+#### TC-FR4-02: Cross-tenant and Cloud Provider Admin visibility
+
+| Story | AC | Priority | Automation | Tier | Owner | Evidence |
+|---|---|---|---|---|---|---|
+| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+
+##### Preconditions
+
+- vol-a in tenant A, vol-b in tenant B, vol-shared in shared scope. Tenant A credentials, Cloud Provider Admin credentials.
+
+##### Steps
+
+1. As tenant A, call public Volumes.List.
+2. As tenant A, call public Volumes.Get(id=vol-b).
+3. As Cloud Provider Admin, call public Volumes.List.
+4. As Cloud Provider Admin, call public Volumes.Get(id=vol-a).
+5. As Cloud Provider Admin, call public Volumes.Get(id=vol-b).
+6. As Cloud Provider Admin, call public Volumes.Get(id=vol-shared).
+
+##### Expected Results
+
+- **A-FR4-02-1**: Tenant A can read its own and shared volumes but cannot read B volumes.
+- **A-FR4-02-2**: Cloud Provider Admin List/Get can read A, B and shared volumes.
+- **A-FR4-02-3**: Method authorization does not introduce a role-specific row query.
+
+#### TC-FR4-03: Unauthenticated and denied method access
+
+| Story | AC | Priority | Automation | Tier | Owner | Evidence |
+|---|---|---|---|---|---|---|
+| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+
+##### Preconditions
+
+- Deployed service with valid tenant credentials and vol-a. OPA allowlist includes Volumes/Get and Volumes/List for tenant clients.
+
+##### Steps
+
+1. Call public Volumes.List with no authentication token.
+2. Call public Volumes.Get(id=vol-a) with no authentication token.
+3. As an authenticated tenant client, call a nonexistent public Volumes/Create method.
+4. As an authenticated tenant client, call a nonexistent public Volumes/Delete method.
+5. Remove Volumes/Get and Volumes/List from OPA allowlist; call Get and List as authenticated tenant client.
+6. Restore OPA allowlist; verify vol-a is still readable and inventory is unchanged.
+
+##### Expected Results
+
+- **A-FR4-03-1**: Unauthenticated calls return Unauthenticated.
+- **A-FR4-03-2**: Authenticated denied methods return PermissionDenied.
+- **A-FR4-03-3**: Disabling read access does not mutate existing volumes or disrupt provisioned workloads; policy is restored.
 
 ### FR5: local approved behavior group
 
@@ -679,7 +774,11 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Recursively compare Volume descriptor to exact public field allowlist; simulate a private-field addition lacking annotation in a generator regression fixture.
+1. Load the generated public Volume proto descriptor.
+2. Recursively enumerate all field paths in the descriptor.
+3. Compare the enumerated set against the exact allowlist: id, metadata, spec.storage_tier, spec.size_gib, spec.access_mode, status.state, status.message.
+4. In a generator regression fixture, add a private field without the `[(cleanapi.field).private = true]` annotation and regenerate.
+5. Re-run the allowlist assertion against the modified descriptor.
 
 ##### Expected Results
 
@@ -699,7 +798,10 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Map private object with GenericMapper SetStrict(false); inspect resulting public protobuf and JSON.
+1. Construct a private Volume proto with all five internal fields (backend, protocol, hub, vendor_volume_id, vendor_context) and public spec/status/metadata populated.
+2. Map the private object using GenericMapper with SetStrict(false).
+3. Inspect the resulting public proto for field presence.
+4. Serialize the public proto to JSON and inspect the JSON output.
 
 ##### Expected Results
 
@@ -719,7 +821,12 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Call Get and List with mapper failing; separately inject delegate codes Unavailable and Internal; repeat successful reads.
+1. Configure the mapper test seam to return an error; call public Volumes.Get(id=vol-a).
+2. Configure the mapper test seam to return an error; call public Volumes.List.
+3. Restore the mapper; inject delegate error code Unavailable; call public Volumes.Get(id=vol-a).
+4. Inject delegate error code Internal; call public Volumes.List.
+5. Restore all seams; call public Volumes.Get(id=vol-a) and Volumes.List successfully.
+6. Verify call counters show exactly one delegate invocation per read call.
 
 ##### Expected Results
 
@@ -741,7 +848,11 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Get each id and List unfiltered; List with explicit available filter.
+1. Call public Volumes.Get(id=vol-a).
+2. Call public Volumes.Get(id=vol-b).
+3. Call public Volumes.Get(id=vol-c).
+4. Call public Volumes.List with no filter.
+5. Call public Volumes.List(filter='this.status.state == "available"').
 
 ##### Expected Results
 
@@ -761,7 +872,10 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Read vol-c while deleting; archive through existing private test setup; then List and Get(vol-c).
+1. Call public Volumes.Get(id=vol-c) while vol-c is in deleting state.
+2. Transition vol-c from deleting to archived (deleted) through the existing private test lifecycle setup.
+3. Call public Volumes.List.
+4. Call public Volumes.Get(id=vol-c).
 
 ##### Expected Results
 
@@ -783,7 +897,12 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. GET /api/fulfillment/v1/volumes and /api/fulfillment/v1/volumes/vol-a; compare with public gRPC List/Get; exercise filter/order/offset/limit through REST.
+1. Send HTTP GET /api/fulfillment/v1/volumes with valid tenant A JWT.
+2. Send HTTP GET /api/fulfillment/v1/volumes/vol-a with valid tenant A JWT.
+3. Call public gRPC Volumes.List and Volumes.Get(id=vol-a) with the same tenant A credentials.
+4. Compare REST and gRPC response payloads.
+5. Send HTTP GET /api/fulfillment/v1/volumes?filter=this.status.state==%22available%22&order=spec.size_gib+asc&offset=0&limit=2 with valid tenant A JWT.
+6. Call the equivalent public gRPC Volumes.List with matching filter, order, offset, and limit.
 
 ##### Expected Results
 
@@ -803,7 +922,11 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Run osac get volumes and osac get volume <id> through the existing CLI harness with tenant credentials; inspect generated public UI types and read-view navigation artifact.
+1. Run `osac get volumes` through the existing CLI harness with tenant A credentials.
+2. Run `osac get volume vol-a` through the existing CLI harness with tenant A credentials.
+3. Run `osac get volume alpha` through the existing CLI harness with tenant A credentials.
+4. Inspect the generated public UI types under `osac-ui/libs/types` for the presence of the public Volume type.
+5. Verify the read-view navigation artifact uses id for deep links.
 
 ##### Expected Results
 
@@ -823,7 +946,13 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Open storage list, click alpha, copy detail URL, reload URL, then inspect network request; log out and re-open.
+1. Open the console storage list page in a browser logged in as tenant A.
+2. Click on the volume named alpha in the list.
+3. Copy the detail page URL from the browser address bar.
+4. Reload the copied URL in a new browser tab.
+5. Open browser developer tools and inspect the network request triggered by the detail page load.
+6. Log out of the console.
+7. Paste the copied detail URL into the browser address bar and attempt to load it.
 
 ##### Expected Results
 
@@ -846,7 +975,10 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Build server; call Get/List on seeded rows; call private Create without resolver.
+1. Build PrivateVolumesServer with logger, DAO, and tenancy but no tier resolver.
+2. Call private Get on a seeded row.
+3. Call private List on seeded rows.
+4. Call private Create without a tier resolver.
 
 ##### Expected Results
 
@@ -866,7 +998,14 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Using existing private provisioning path create an A standalone volume; poll its actual inventory state with bounded runner; Get/List through public API as A and B; teardown through existing private path in finally.
+1. Using the existing private provisioning path, create a standalone volume in tenant A.
+2. Poll the volume's inventory state using the bounded runner until it reaches available.
+3. Call public Volumes.Get(id=<provisioned id>) as tenant A.
+4. Call public Volumes.List as tenant A.
+5. Call public Volumes.List as tenant B.
+6. Call public Volumes.Get(id=<provisioned id>) as tenant B.
+7. In a finally block, tear down the volume through the existing private provisioning path.
+8. Verify the archived volume is absent from public List and Get.
 
 ##### Expected Results
 
@@ -888,7 +1027,13 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Steps
 
-1. Check generated spec routes and field descriptors, compare migration/schema artifacts before/after read-only change; call existing resource clients.
+1. Load the generated public API spec (OpenAPI/proto descriptor).
+2. Verify the spec contains GET /api/fulfillment/v1/volumes and GET /api/fulfillment/v1/volumes/{id}.
+3. Verify the spec contains no public Volume mutation operation (Create, Update, Delete, Signal, Resize).
+4. Compare database migration artifacts before and after the read-only change.
+5. Verify no CRD, webhook, aggregated API server, or finalizer was added.
+6. Call an existing unrelated resource client (e.g., Clusters.List) and verify it succeeds.
+7. In an isolated wiring fixture, remove the public Volumes gRPC and REST registration; verify no migration runs and inventory data remains.
 
 ##### Expected Results
 
