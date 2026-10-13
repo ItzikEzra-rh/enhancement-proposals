@@ -66,6 +66,9 @@ Hooks:
 - `/test-plan-score` retries scoring on the current head. `/test-plan-respond`
   does not pass the gate itself; same-repository revisions are scored again,
   and fork revisions must be applied before re-scoring.
+  The CI revision step requests exact text replacements to preserve unchanged
+  plan content. Missing, ambiguous or overlapping matches fail before a commit;
+  the complete reconstructed plan is validated and then scored on its new SHA.
 - Cite large source files as `component/path/file.go:100-160` to provide an
   explicit inclusive line excerpt from the pinned OSAC checkout. The review
   records omitted lines; an unqualified citation includes the full file.

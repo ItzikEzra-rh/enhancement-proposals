@@ -60,7 +60,7 @@ class SkillSourceTraceabilityTests(unittest.TestCase):
                 if workflow_name == "Test Plan Review":
                     # Fork-only rehearsal overlay: public, immutable skill snapshot.
                     self.assertIn("repository: ItzikEzra-rh/osac-ai-skills", checkout_step)
-                    self.assertIn("ref: 80ebb692c816a1373fb35e863ff8ba88083ae889", checkout_step)
+                    self.assertIn("ref: f09511abd3f349b4a3a7c0bec023d3666a22bc24", checkout_step)
                     self.assertIn("token: ${{ github.token }}", checkout_step)
                 else:
                     self.assertIn(f"repository: {SKILLS_REPOSITORY}", checkout_step)

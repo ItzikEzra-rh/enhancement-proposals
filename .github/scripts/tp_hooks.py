@@ -345,6 +345,11 @@ class TestPlanHooks:
             "Consistency deductions must name actual counts/IDs/grouping or "
             "contradictions, not consistent local aliases, optional extra columns "
             "or uniform valid priorities. "
+            "Calculate the verdict from final scores and explicit rubric caps. "
+            "An 8-10 total with no zero requires Ready unless a named rubric "
+            "cap applies. A nonzero Consistency 1 alone is not a Revise cap. "
+            "For high-total Revise, identify the cap, affected case and missing "
+            "required evidence. Return final scores and notes that agree. "
             "Return only the verdict.json object with all its required fields. "
             "Do not write files or run commands.\n\n"
             + skill + "\n\n" + "\n\n".join(references)
@@ -364,7 +369,24 @@ class TestPlanHooks:
             "Assess plan readiness separately from execution results."
         )
 
-    def _respond_prompt(self):
+    def _respond_prompt(self, patches=False):
+        output_format = (
+            "Return only a JSON object with a replacements array. Each entry "
+            "has exactly two string fields: old and new. Copy old verbatim "
+            "from the current TestPlan; it must match exactly once. new is its "
+            "complete replacement. Use small, non-overlapping edits; to insert "
+            "cases, replace a unique heading with the new cases followed by "
+            "that heading. Do not regenerate unchanged clauses, ledgers or "
+            "cases. Preserve all other content and YAML frontmatter."
+            if patches else
+            "Return the complete revised TestPlan.md as your response. Do not "
+            "wrap it in a Markdown code fence or add commentary. Keep the complete "
+            "revision within 12000 output tokens: retain every required scenario "
+            "and concrete expected result, but use source citations instead of "
+            "duplicating long PRD/design quotations or repeated audit prose. "
+            "Preserve requirement mappings and execution evidence. Preserve the "
+            "YAML frontmatter."
+        )
         return (
             PROMPT_INJECTION_BOUNDARY
             + "Revise the test plan based on review feedback.\n\n"
@@ -377,13 +399,7 @@ class TestPlanHooks:
             "3. Ensure the revision doesn't break existing test scenarios\n\n"
             "Use the context files (.context/osac-test-strategy.md, etc.) to "
             "ground any new or revised test scenarios.\n\n"
-            "Return the complete revised TestPlan.md as your response. Do not "
-            "wrap it in a Markdown code fence or add commentary. Keep the complete "
-            "revision within 12000 output tokens: retain every required scenario "
-            "and concrete expected result, but use source citations instead of "
-            "duplicating long PRD/design quotations or repeated audit prose. "
-            "Preserve requirement mappings and execution evidence. Preserve the "
-            "YAML frontmatter."
+            + output_format
         )
 
     # ── Verdict loader ──
@@ -666,13 +682,17 @@ class TestPlanHooks:
             "Assisted-by: Test Plan Review (Claude on Vertex AI) "
             "<noreply@anthropic.com>"
         )
-        self._gh([
+        response = self._gh([
             "api", f"repos/{head_repo}/contents/{testplan_path}", "-X", "PUT",
             "-f", f"message={message}",
             "-f", f"content={content}",
             "-f", f"sha={testplan_sha}",
             "-f", f"branch={head_branch}",
         ], check=True)
+        commit_sha = json.loads(response).get("commit", {}).get("sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+            raise RuntimeError("GitHub response did not return the created commit SHA")
+        self.pr_data["response_commit_sha"] = commit_sha
         print(f"  [{ticket_key}] Committed revised TestPlan.md via GitHub API")
 
     # ── Cost formatter ──

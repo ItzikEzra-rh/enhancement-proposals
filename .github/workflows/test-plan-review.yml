@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: ItzikEzra-rh/osac-ai-skills
-          ref: 80ebb692c816a1373fb35e863ff8ba88083ae889
+          ref: f09511abd3f349b4a3a7c0bec023d3666a22bc24
           token: ${{ github.token }}
           path: osac-ai-skills
           persist-credentials: false
@@ -221,6 +221,19 @@ jobs:
           path: |
             test-plan-score/report.json
             test-plan-score/**/verdict.json
+            test-plan-score/**/model-output.txt
+            test-plan-score/**/model-usage.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload response diagnostics
+        if: always() && hashFiles('workdir-test-plan-review/model-output.txt') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v4
+        with:
+          name: test-plan-diagnostics-pr${{ needs.resolve-pr.outputs.pr_number }}-run${{ github.run_id }}
+          path: |
+            workdir-test-plan-review/model-output.txt
+            workdir-test-plan-review/model-usage.json
           if-no-files-found: warn
           retention-days: 14
 

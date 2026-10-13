@@ -180,7 +180,10 @@ class VertexCallSecurityTests(unittest.TestCase):
             with patch.object(hooks, "_gh", return_value=""), patch.object(
                 tp_review,
                 "complete",
-                return_value=("# Revised plan\n" + "detail " * 100,
+                return_value=(json.dumps({"replacements": [{
+                    "old": "A test plan supplied by the PR",
+                    "new": "# Revised plan\n" + "detail " * 100,
+                }]}),
                               {"input_tokens": 100, "output_tokens": 50}),
             ) as model, patch.object(
                 tp_review,

@@ -222,16 +222,35 @@ class ScoringTests(unittest.TestCase):
         original = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
         revised = {**original, 'head': {**original['head'], 'sha': 'b' * 40}}
         with patch.dict(os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA, 'TP_SHADOW': 'false'}), patch.object(
-            tp_review, 'get_pull_request', side_effect=[original, revised],
+            tp_review, 'get_pull_request', side_effect=[original, original, revised],
         ), patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
             tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
-        ), patch.object(tp_review, 'run_review'), patch.object(tp_check, 'start') as start, patch.object(
+        ), patch.object(tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40}), patch.object(tp_review.time, 'sleep') as sleep, patch.object(tp_check, 'start') as start, patch.object(
             tp_review, 'score_main', return_value=1,
         ) as score:
             self.assertEqual(tp_review.respond_main(), 1)
             start.assert_called_once_with(tp_review.REPO, 'b' * 40)
             score.assert_called_once()
             self.assertEqual(os.environ['PR_HEAD_SHA'], 'b' * 40)
+            sleep.assert_called_once_with(1)
+
+    def test_response_head_that_moves_or_stays_stale_cannot_skip_scoring_silently(self):
+        original = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
+        moved = {**original, 'head': {**original['head'], 'sha': 'c' * 40}}
+        for reads in ([original, moved], [original] * 6):
+            with self.subTest(reads=len(reads)), patch.dict(os.environ, {
+                'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA, 'TP_SHADOW': 'false',
+            }), patch.object(tp_review, 'IN_CI', False), patch.object(
+                tp_review, 'get_pull_request', side_effect=reads,
+            ), patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
+                tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
+            ), patch.object(tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40}), patch.object(
+                tp_review.time, 'sleep'
+            ), patch.object(tp_check, 'start') as start, patch.object(tp_review, 'score_main') as score:
+                with self.assertRaises(RuntimeError):
+                    tp_review.respond_main()
+                start.assert_called_once_with(tp_review.REPO, 'b' * 40)
+                score.assert_not_called()
 
     def test_bad_json_and_model_failure_block(self):
         for output in (('not json', {}), RuntimeError('Model unavailable')):
@@ -239,12 +258,20 @@ class ScoringTests(unittest.TestCase):
                 hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills),
                                       pr_data=dict(testplan_content='plan', design_content='design', prd_content='prd'))
                 with patch.object(tp_review, 'complete', side_effect=output if isinstance(output, Exception) else None,
-                                  return_value=output if not isinstance(output, Exception) else None), patch.object(
+                                  return_value=output if not isinstance(output, Exception) else None) as model, patch.object(
                     tp_review, 'get_pull_request', return_value=PR,
                 ):
                     with self.assertRaises((RuntimeError, json.JSONDecodeError)):
                         tp_review.run_review(hooks, 'test-plan-score', 'TP-42',
                                              {'number': 42, 'headRefOid': SHA}, directory, model='test')
+                self.assertIn('exactly one serialized JSON object', model.call_args.args[1])
+                diagnostic = Path(directory) / 'model-output.txt'
+                if isinstance(output, Exception):
+                    self.assertFalse(diagnostic.exists())
+                else:
+                    self.assertEqual(diagnostic.read_text(), 'not json')
+                    self.assertEqual(json.loads((Path(directory) / 'model-usage.json').read_text()), {})
+                    self.assertFalse((Path(directory) / 'verdict.json').exists())
 
 
 class CheckLifecycleTests(unittest.TestCase):
@@ -426,6 +453,20 @@ if __name__ == '__main__':
 
 
 class PlanningPromptTests(unittest.TestCase):
+    def test_ci_response_requests_small_edits_without_changing_legacy_format(self):
+        hooks = TestPlanHooks(repo='test/repo', skills_path='unused')
+        self.assertIn('replacements array', hooks._respond_prompt(patches=True))
+        self.assertNotIn('Return the complete revised', hooks._respond_prompt(patches=True))
+        self.assertIn('Return the complete revised', hooks._respond_prompt())
+
+    def test_verdict_uses_numeric_band_with_only_defined_caps(self):
+        with scoring_fixture() as skills:
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills))
+            prompt = hooks._score_prompt()
+        self.assertIn('8-10 total with no zero requires Ready', prompt)
+        self.assertIn('Consistency 1 alone is not a Revise cap', prompt)
+        self.assertIn('identify the cap, affected case', prompt)
+
     def test_scoring_distinguishes_planned_coverage_from_execution(self):
         with scoring_fixture() as skills:
             hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills))
@@ -436,3 +477,44 @@ class PlanningPromptTests(unittest.TestCase):
         self.assertIn('can receive Grounding 2 before they', prompt)
         self.assertIn('missing required case still caps readiness', prompt)
         self.assertIn('faked required boundary still triggers Rework', prompt)
+
+
+class ResponseReplacementTests(unittest.TestCase):
+    def test_invalid_revision_never_publishes_a_partial_document(self):
+        hooks = TestPlanHooks(repo='test/repo', skills_path='unused',
+                              pr_data={'testplan_content': 'same same'})
+        output = json.dumps({'replacements': [{'old': 'same', 'new': 'edited'}]})
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            hooks, '_gh', return_value=''
+        ), patch.object(tp_review, 'complete', return_value=(output, {})), patch.object(
+            tp_review, 'get_pull_request', return_value=PR
+        ), patch.object(hooks, 'apply_labels') as publish:
+            with self.assertRaisesRegex(ValueError, 'match exactly once'):
+                tp_review.run_review(hooks, 'test-plan-review', 'TP-42',
+                                     {'number': 42, 'headRefOid': SHA}, directory,
+                                     model='test')
+            publish.assert_not_called()
+            self.assertFalse((Path(directory) / 'testplan-output.md').exists())
+            self.assertEqual((Path(directory) / 'model-output.txt').read_text(), output)
+
+    def test_edits_preserve_frontmatter_and_unchanged_ledger(self):
+        original = '---\nauthor: user\n---\nledger remains\n### FR4\nold result\n### FR5\n'
+        revised = tp_review.apply_response_replacements(original, {
+            'replacements': [{'old': 'old result', 'new': 'specific new result'},
+                             {'old': '### FR5\n', 'new': 'additional case\n### FR5\n'}],
+        })
+        self.assertEqual(revised, '---\nauthor: user\n---\nledger remains\n### FR4\nspecific new result\nadditional case\n### FR5\n')
+
+    def test_ambiguous_missing_overlapping_and_malformed_edits_are_rejected(self):
+        original = 'same same unique target'
+        for replacements in (
+            [], [{'old': 'same', 'new': 'changed'}],
+            [{'old': 'missing', 'new': 'changed'}],
+            [{'old': 'unique target', 'new': 'changed'}, {'old': 'target', 'new': 'other'}],
+            [{'old': '', 'new': 'changed'}],
+            [{'old': 'unique', 'new': 'unique'}],
+            [{'old': 'unique', 'new': 1}],
+            [{'old': 'unique', 'new': 'changed', 'path': '/tmp/other'}],
+        ):
+            with self.subTest(replacements=replacements), self.assertRaises(ValueError):
+                tp_review.apply_response_replacements(original, {'replacements': replacements})
