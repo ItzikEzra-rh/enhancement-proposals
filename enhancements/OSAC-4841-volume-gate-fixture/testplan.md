@@ -8,8 +8,9 @@ This disposable fork fixture evaluates gate behavior. PRD/design are byte-identi
 - Interface aliases: IC1 public gRPC Get/List; IC2 REST paths; IC3 public Volume projection.
 - Story aliases: DEV-READ (implementation/unit/component-integration), QE-READ (deployed journey), UI-READ (OSAC-4546/4547). These are local assignments, not fabricated Jira tickets.
 - Total test cases: 21 (20 automated intent, 1 manual).
+- Fixture identifiers such as `vol-a` are symbolic aliases for the system-generated IDs returned by private Create, never literal request IDs. Capture the returned ID and use that value in Get/List assertions.
 - Execution status: all not run; future additions explicitly proposed. A Ready plan is not executed coverage.
-- Skills SHA: 8eea76b8900cd94621897c638d25b27878a27170; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
+- Skills SHA: 80ebb692c816a1373fb35e863ff8ba88083ae889; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
 
 ## Source-clause ledger and section accounting
 
@@ -508,11 +509,112 @@ The canonical ownership follows `docs/INTEGRATION-TESTING.md`, `fulfillment-serv
 | Row | Behavior / requirements / cases | Component / owner / tier / boundary | Location and execution | Prerequisites and real/faked dependencies | Readiness / status / follow-up |
 |---|---|---|---|---|---|
 | E-U | FR1/2/5/8, IC1/3; TC-FR1-02, TC-FR2-02, TC-FR5-01, TC-FR5-02, TC-FR5-03, TC-FR8-01, TC-FR8-03 | fulfillment-service, DEV-READ [DEV], Unit; in-process public/private delegation, mapper and generated descriptor assertions | Proposed frozen-feature fixture file `fulfillment-service/internal/servers/volume_read_contract_test.go`, reusing patterns from existing `fulfillment-service/internal/servers/volumes_server_test.go`, `fulfillment-service/internal/servers/private_volumes_server_test.go`; fixtures in `fulfillment-service/internal/servers/servers_suite_test.go`. Existing command `ginkgo run --timeout 10m internal/servers`, cwd `fulfillment-service/`, defined in component AGENTS.md. New generator fault fixture proposed in same suite. Frozen descriptor/wiring and optional-resolver assertions use a separate historical feature fixture built from the retained read-only design; do not disable or replace current CRUD tests. Existing current-server read projection tests are extended alongside CRUD tests. This plan never claims current production schema is read-only. | Go/Ginkgo and suite database transaction setup required; database may be real as suite setup but assertions are in-process; tier resolver, mapper/delegate error seams simulated; no real provider/operator/AAP. | not run; suite paths exist but new frozen-contract cases proposed; current lifecycle code differs from frozen read-only oracle. Implementation work owned DEV-READ; no separate follow-up ticket allocated. |
-| E-I | FR1/2/3/4/6/7, IC1/2/3; TC-FR1-01, TC-FR2-01, TC-FR3-01, TC-FR3-02, TC-FR3-03, TC-FR4-01, TC-FR4-02, TC-FR4-03, TC-FR6-01, TC-FR6-02, TC-FR7-01, TC-FR7-02 | fulfillment-service, DEV-READ [DEV], Integration (canonical component-integration); client→deployed API→JWT/OPA/tenancy→private delegate→PostgreSQL | Extend `fulfillment-service/it/it_public_volumes_test.go` and `fulfillment-service/it/it_volume_lifecycle_test.go`; clients/setup in `fulfillment-service/it/it_suite_test.go`. Existing command from root: `make -C osac-installer test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`, defined in `osac-installer/Makefile` / `fulfillment-service/AGENTS.md`. | Dedicated fresh osac-dev Kind, KUBECONFIG, host mappings, install-infra and service image, real API/gateway/PostgreSQL/auth; private admin clients seed fixtures with DeferCleanup. Storage provider/operator/AAP omitted deliberately: this boundary validates inventory projection/isolation, not provisioning. CLI harness builds checkout CLI. Project restriction fixture extension proposed; row predicates use standard tenancy, no new product field. | not run; existing harness available; extensions proposed; fixture setup for project restriction must use standard tenancy. DEV-READ owns implementation and fixture work; no separate follow-up ticket allocated. |
-| E-E | FR8 and design E2E, IC1/2/3; TC-FR8-02 | tests/e2e, QE-READ [QE], E2E; provisioner/provider→inventory→public read→tenant client | Proposed `tests/e2e/storage/test_volume_public_reads.py`, following cleanup/polling in existing `tests/e2e/storage/test_tenant_storage_lifecycle.py`, `tests/e2e/vmaas/regression/test_compute_instance_storage_tier.py`, shared `tests/e2e/conftest.py`, `tests/e2e/storage/conftest.py`, `tests/e2e/core/grpc_client.py`, `tests/e2e/core/runner.py`. Proposed command `uv run pytest tests/e2e/storage/test_volume_public_reads.py`, cwd OSAC root (pytest execution pattern defined by tests/e2e/AGENTS.md; new file does not yet exist). | Real deployed fulfillment/PostgreSQL/auth, operator, AAP and real storage provider; selected provider is a real VAST backend (not mock VMS), with backend endpoint/credentials provisioned in the disposable lab configuration, private StorageBackend/StorageTier inventory and AAP templates configured; tenant A/B credentials, tier/backend, private volume provisioning client and cleanup helper to be added. No mocked provider or reconciliation. Enable storage controller and OSAC_STORAGE_BACKEND_AAP_PROVISION_TEMPLATE; set OSAC_NAMESPACE and OSAC_STORAGE_CONFIG_NAMESPACE as defined in storage/conftest.py, KUBECONFIG and authenticated API addresses as defined in tests/e2e/conftest.py. QE-READ adds private volume provisioning/public Get/List/cleanup methods to GRPCClient; these are proposed work. Fail environment preflight if real VAST is missing; skipped/mock-backed runs do not satisfy the boundary. Standard bounded polling, no product timing SLA invented. | not run; proposed harness, private provision/read helper additions and disposable full environment required. QE-READ owns work; QE-READ [QE] owns the proposed harness and private Volume gRPC client additions; no assigned person or separate infrastructure ticket exists, explicitly unresolved. This is disclosed setup work, not an omitted required E2E case. Existing storage lifecycle may use mock VMS; that variant cannot prove this real provider boundary. |
+| E-I | FR1/2/3/4/6/7, IC1/2/3; TC-FR1-01, TC-FR2-01, TC-FR3-01, TC-FR3-02, TC-FR3-03, TC-FR4-01, TC-FR4-02, TC-FR4-03, TC-FR6-01, TC-FR6-02, TC-FR7-01, TC-FR7-02 | fulfillment-service, DEV-READ [DEV], Integration (canonical component-integration); client→deployed API→JWT/OPA/tenancy→private delegate→PostgreSQL | Extend `fulfillment-service/it/it_public_volumes_test.go` and `fulfillment-service/it/it_volume_lifecycle_test.go`; clients/setup in `fulfillment-service/it/it_suite_test.go`. Existing command from root: `make -C osac-installer test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`, defined in `osac-installer/Makefile` / `fulfillment-service/AGENTS.md`. | Dedicated fresh osac-dev Kind, KUBECONFIG, host mappings, install-infra and service image, real API/gateway/PostgreSQL/auth; private admin clients seed fixtures with DeferCleanup. Storage provider/operator/AAP omitted deliberately: this boundary validates inventory projection/isolation, not provisioning. CLI harness builds checkout CLI. Project restriction fixture extension proposed; use the concrete tenant/project setup below, with real Keycloak-issued JWTs and private ProjectMembership records; no mocked tenancy logic in this tier. | not run; existing harness available; extensions proposed; project fixture follows the concrete setup below; new helper remains proposed. DEV-READ owns implementation and fixture work; no separate follow-up ticket allocated. |
+| E-E | FR8 and design E2E, IC1/2/3; TC-FR8-02 | tests/e2e, QE-READ [QE], E2E; provisioner/provider→inventory→public read→tenant client | Proposed `tests/e2e/storage/test_volume_public_reads.py`, following cleanup/polling in existing `tests/e2e/storage/test_tenant_storage_lifecycle.py`, `tests/e2e/vmaas/regression/test_compute_instance_storage_tier.py`, shared `tests/e2e/conftest.py`, `tests/e2e/storage/conftest.py`, `tests/e2e/core/grpc_client.py`, `tests/e2e/core/runner.py`. Proposed command `uv run pytest tests/e2e/storage/test_volume_public_reads.py`, cwd OSAC root (pytest execution pattern defined by tests/e2e/AGENTS.md; new file does not yet exist). | Real deployed fulfillment/PostgreSQL/auth, operator, AAP and real storage provider; selected provider is a real VAST backend (not mock VMS), with backend endpoint/credentials provisioned in the disposable lab configuration, private StorageBackend/StorageTier inventory and AAP templates configured; tenant A/B credentials, tier/backend, private volume provisioning client and cleanup helper to be added using the concrete lab setup below. No mocked provider or reconciliation. Enable storage controller and OSAC_STORAGE_BACKEND_AAP_PROVISION_TEMPLATE; set OSAC_NAMESPACE and OSAC_STORAGE_CONFIG_NAMESPACE as defined in storage/conftest.py, KUBECONFIG and authenticated API addresses as defined in tests/e2e/conftest.py. QE-READ adds private volume provisioning/public Get/List/cleanup methods to GRPCClient; these are proposed work. Fail environment preflight if real VAST is missing; skipped/mock-backed runs do not satisfy the boundary. Standard bounded polling, no product timing SLA invented. | not run; proposed harness, private provision/read helper additions and disposable full environment required. QE-READ owns work; QE-READ [QE] owns the proposed harness and private Volume gRPC client additions; no assigned person or separate infrastructure ticket exists, explicitly unresolved. This is disclosed setup work, not an omitted required E2E case. Existing storage lifecycle may use mock VMS; that variant cannot prove this real provider boundary. |
 | E-M | FR7, IC1/2/3; TC-FR7-03 | osac-ui consumer, UI-READ [QE], E2E; manual deployed browser→gateway→service | Manual browser procedure in case; cwd N/A because browser execution; new UI consumer work OSAC-4546/4547, generated types under `osac-ui/libs/types` | Real console, API/auth/PostgreSQL, tenant credentials, seeded private volume; provisioning omitted because separate E-E proves it | not run; consumer UI delivery tracked [OSAC-4546](https://redhat.atlassian.net/browse/OSAC-4546) / [OSAC-4547](https://redhat.atlassian.net/browse/OSAC-4547); no result claimed |
 
 Supplemental build validation: `make -C proto generate` and `make -C proto lint` from OSAC root, definitions `proto/Makefile` and `proto/AGENTS.md`; `pnpm gen-types` for UI per design. Generation is not a test tier. Never hand-edit generated files despite the historical design import-pruning note.
+
+## Concrete setup work for E-I and E-E
+
+These procedures are proposed implementation work owned by DEV-READ and QE-READ
+under OSAC-4542. They identify the setup deliverable and boundary. They have not
+been executed, and no new helper or lab is claimed to exist. The approved
+read-only PRD/design remains the behavior oracle. References below use OSAC
+commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
+
+### Project-isolation setup: DEV-READ, component integration
+
+1. Start the dedicated Kind fulfillment integration environment using E-I's
+   existing installer command. Reuse the private admin connection and real
+   Keycloak admin helper from `fulfillment-service/it/it_catalog_items_fixtures_test.go`
+   (`createCatalogItemTenantAdminFixture`, `tool.KeycloakAdminRequest`). Add a
+   proposed `createVolumeProjectReadFixture` helper to `it_public_volumes_test.go`.
+2. Create unique tenants A and B with private `Tenants/Create`, await their
+   synchronization, and create named projects project1/project3 in A and project2
+   in B with private `Projects/Create`: metadata tenant and name, spec title.
+   This shape is demonstrated by
+   `fulfillment-service/internal/servers/private_projects_server_test.go`.
+3. Create two ordinary test users in A through the real lab Keycloak admin API,
+   leave one as an ordinary tenant member and grant the other the existing
+   `tenant-admin` realm role using the fixture pattern, log in through
+   `tool.makeKeycloakTokenSource`, and use `tool.makeGrpcConn` for the public
+   connection. The existing login pattern is in
+   `fulfillment-service/it/it_catalog_items_fixtures_test.go`. Keep each user's
+   Fulfillment User ID after first authentication. Do not use a provider-admin
+   token or the break-glass account for the restricted subjects.
+4. Using private `ProjectMemberships/Create`, set metadata tenant=A,
+   project=project1, a unique name, spec role=VIEWER and spec users containing
+   each user's ID. Wait for membership status READY, then obtain fresh JWTs.
+   The authoritative shapes and state are in
+   `proto/private/osac/private/v1/project_membership_type.proto`; reconciliation
+   is in `fulfillment-service/internal/controllers/projectmembership/project_membership_reconciler_function.go`.
+   Do not grant project3 or B to either subject.
+5. Preflight the authenticated entitlements: the JWT organization claim for A
+   includes `/project1/system:viewers`, excludes project3, and neither user has
+   universal tenant access. `fulfillment-service/internal/auth/default_tenancy_logic.go`
+   (`DetermineVisibility`, `addProjectsFromTenantGroups`) consumes these grants;
+   its test `Includes projects from Keycloak groups in JWT token` in
+   `default_tenancy_logic_test.go` establishes the exact claim shape. Existing
+   `auth_visibility.go` grants A's default project independently, so no assertion
+   equates project1 membership with exclusion of the default project.
+6. Seed volumes through the private Volume client with metadata tenant/project
+   set explicitly, then capture returned IDs as vol-a, vol-b and vol-c. Reuse
+   backend/tier seeding and DeferCleanup from `it_public_volumes_test.go` while
+   keeping provider execution omitted for this inventory boundary. Run
+   TC-FR4-01 as both users. Exercise the real deployed JWT/OPA/DAO path; the
+   mocked `Generic DAO visibility` tests are supporting examples only.
+7. Register cleanup immediately after each successful Create. Delete volumes,
+   memberships, users, projects and tenants in dependency order, await absence,
+   close connections, and report cleanup failures. Existing tenant fixture
+   cleanup is in `createCatalogItemTenantAdminFixture`. The new helper must
+   implement this cleanup before the case becomes execution-ready.
+
+### Real storage lab setup: QE-READ, E2E
+
+1. QE-READ prepares a disposable deployment with real fulfillment/database/auth,
+   the OSAC operator, AAP and an allocated real VAST block-storage backend.
+   Obtain endpoint/credentials from the lab administrator at runtime. No lab
+   allocation, assigned person, credentials or infrastructure ticket is present
+   in this repository; allocation remains an explicit execution prerequisite.
+   No mocked VMS endpoint may be used for this case.
+2. Register the backend through private `StorageBackends/Create`: provider=vast,
+   real management endpoint, username and exactly one password source. Use
+   `proto/private/osac/private/v1/storage_backend_type.proto` for credential
+   validation. Register a block StorageTier associated with that returned
+   backend ID, following `it_public_volumes_test.go`. Keep admin credentials in
+   the private backend API; `osac-aap/config/base/secret-storage-operations-ig-example.yaml`
+   explicitly excludes copying VAST admin credentials into tenant secrets.
+3. Deploy/configure the real VAST CSI controller endpoint; enable the operator
+   volume controller (`OSAC_ENABLE_VOLUME_CONTROLLER`) and provider routing
+   (`OSAC_VENDOR_CONTROLLERS` with the vast provider and actual controller
+   endpoint). Existing parsing/registration is in `osac-operator/cmd/main.go`
+   (`parseVendorControllers`, `setupVolumeControllers`,
+   `newVendorProvisionerRegistry`). This is runtime lab configuration, not a
+   proposed new installer value or a networking API change.
+4. Configure AAP's existing tenant storage onboarding templates and enable the
+   storage controller. Onboard test tenants and await StorageBackendReady using
+   `tests/e2e/storage/test_tenant_storage_lifecycle.py`. Verify the per-tenant hub
+   configuration exists in OSAC_STORAGE_CONFIG_NAMESPACE and the selected tier
+   has its VAST view/subsystem. The exact required hub-secret keys and subsystem
+   construction are in `osac-operator/internal/controller/vast_vendor_provisioner.go`
+   (`readTenantCreds`, `CreateVolume`). Check presence and readiness without
+   emitting credential values. Lab routing and tenant storage resources are
+   prerequisites supplied by onboarding, not new networking test requirements.
+5. Add the proposed private Volume Create/Get/Delete and public Get/List wrappers
+   to `tests/e2e/core/grpc_client.py`, following its existing `call` and storage-tier
+   wrappers. Create a standalone A volume through the private path, register
+   cleanup immediately, and await provider-backed readiness through actual
+   operator feedback. Run TC-FR8-02 with real A/B authenticated clients.
+6. Preflight requires actual provider routing, successful onboarding and reachable
+   real CSI/VAST services. A missing environment fails preflight; the storage
+   suite's existing skip mechanism in `tests/e2e/storage/conftest.py` must not be
+   reported as passing TC-FR8-02. A fake provider can support lower tiers only.
+7. In finally, delete the private volume and await both inventory absence and
+   vendor deletion, then remove temporary tenant/tier/backend resources in
+   reverse dependency order. Retain sanitized resource IDs, timing, observations
+   and cleanup outcome as execution evidence. Use existing bounded polling
+   patterns; the runner timeout is operational and establishes no product SLA.
 
 ## Test Cases
 
@@ -675,7 +777,7 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 
 ##### Preconditions
 
-- Private setup creates A/project1 vol-a, B/project2 vol-b, and A/project3 vol-c. Credentials restrict the subject to A/project1 under the standard visibility model.
+- Follow the project-isolation setup below. Private Create returns IDs aliased as vol-a (A/project1), vol-b (B/project2), and vol-c (A/project3). Two real Keycloak users in A have identical project1-only grants, one Tenant User and one Tenant Admin. Their default project remains visible under the existing tenancy contract; this case seeds no default-project volume.
 
 ##### Steps
 
@@ -1064,3 +1166,5 @@ Every result above is independently falsifiable. Stable assertion IDs refer to e
 Planning check: source sections accounted; assertions mapped with concrete results; execution paths and proposed gaps disclosed. Planning readiness does not mean test execution. No product sources were modified. Correction round 1 adds missing error/project/shared/deployed cases and replaces old unresolved ordering classification with implementation drift.
 
 Correction round 2: select real VAST prerequisites and explicitly separate the proposed historical read-only descriptor fixture from current CRUD suites. Proposed commands/files remain proposed; no passing execution or new product requirement is claimed.
+
+Continuation planning pass, correction 1: specify project membership/JWT setup and real provider lab steps from pinned source. Preserve all existing clauses, assertion IDs and 21 cases. Allocation and proposed helper execution remain not run; a plan score must not be presented as feature execution.
