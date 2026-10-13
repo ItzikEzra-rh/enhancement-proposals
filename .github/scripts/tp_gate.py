@@ -91,6 +91,60 @@ def git_sha(root):
     ).strip()
 
 
+def classify_assessment(assessment):
+    """Emit the public verdict by applying rubric rules to explicit facts."""
+    fields = ("scores", "criterionNotes", "summary", "feedback", "findings")
+    if not isinstance(assessment, dict) or set(assessment) != set(fields) | {"policy"}:
+        raise ValueError("CI assessment needs scores, notes, findings and policy; no model verdict")
+    scores = assessment["scores"]
+    if (not isinstance(scores, dict) or set(scores) != SCORE_KEYS
+            or any(type(value) is not int or value not in range(3)
+                   for value in scores.values())):
+        raise ValueError("Assessment scores must be the five integers from 0 to 2")
+    result = {key: assessment[key] for key in fields}
+    result.update(total=sum(scores.values()), verdict="Revise")
+    errors = validate_verdict(result)
+    if errors:
+        raise ValueError("Invalid assessment evidence: " + "; ".join(errors))
+    policy = assessment["policy"]
+    if (not isinstance(policy, dict)
+            or set(policy) != {"integrationRequired", "groundingUsable", "caps"}
+            or type(policy["integrationRequired"]) is not bool
+            or type(policy["groundingUsable"]) is not bool
+            or not isinstance(policy["caps"], list) or len(policy["caps"]) > 32):
+        raise ValueError("Invalid assessment policy facts")
+    codes = set()
+    for cap in policy["caps"]:
+        if (not isinstance(cap, dict)
+                or set(cap) != {"code", "caseIds", "source", "detail"}
+                or not isinstance(cap["code"], str)
+                or cap["code"] not in {
+                    "boundary_mismatch", "missing_required_case", "unusable_grounding"
+                }
+                or not isinstance(cap["caseIds"], list) or not cap["caseIds"]
+                or any(not isinstance(case, str) or not case.strip() for case in cap["caseIds"])
+                or any(not isinstance(cap[key], str) or not cap[key].strip()
+                       for key in ("source", "detail"))):
+            raise ValueError("Every policy cap needs a supported code and case/source evidence")
+        codes.add(cap["code"])
+    if not policy["groundingUsable"] and "unusable_grounding" not in codes:
+        raise ValueError("Unusable grounding needs a named evidence cap")
+    if 0 in scores.values() or "boundary_mismatch" in codes:
+        result["verdict"] = "Rework"
+    elif (codes & {"missing_required_case", "unusable_grounding"}
+            or (policy["integrationRequired"] and scores["grounding"] == 1)):
+        result["verdict"] = "Revise"
+    else:
+        result["verdict"] = (
+            "Ready" if result["total"] >= 8 else
+            "Revise" if result["total"] >= 5 else "Rework"
+        )
+    errors = validate_verdict(result)
+    if errors:
+        raise ValueError("Invalid classified verdict: " + "; ".join(errors))
+    return result
+
+
 def grounding_context(root, documents):
     """Read tracked guidance and cited source files, never execute PR content."""
     root = Path(root).resolve()

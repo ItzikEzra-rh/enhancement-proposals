@@ -19,7 +19,8 @@ from urllib.parse import quote
 
 from tp_hooks import TestPlanHooks
 from tp_model import complete
-from tp_gate import (PLAN_NAMES, DESIGN_NAMES, affected_enhancements, git_sha, write_json)
+from tp_gate import (PLAN_NAMES, DESIGN_NAMES, affected_enhancements,
+                     classify_assessment, git_sha, write_json)
 
 
 REPO = os.environ.get("GITHUB_REPOSITORY", "osac-project/enhancement-proposals")
@@ -33,10 +34,13 @@ SYSTEM_PROMPT = (
 SCORE_OUTPUT_INSTRUCTIONS = (
     " For scoring, return exactly one serialized JSON object, with no "
     "introductory text, Markdown, XML tags, or file paths. Its fields are "
-    "verdict, scores, total, criterionNotes, summary, feedback, and findings. "
+    "scores, criterionNotes, summary, feedback, findings, and policy. "
+    "Do not emit verdict or total; trusted code computes them. "
     "scores and criterionNotes use specificity, grounding, scope_fidelity, "
     "actionability, and consistency. findings contains critical, important, "
-    "and suggestions arrays of strings. Follow the rubric for all values."
+    "and suggestions arrays of strings. policy contains integrationRequired "
+    "and groundingUsable booleans, plus a caps array of objects containing "
+    "code, caseIds, source and detail. Follow the CI assessment mode rules."
 )
 RESPONSE_OUTPUT_INSTRUCTIONS = (
     " For revision, return exactly one serialized JSON object with a "
@@ -228,9 +232,7 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
     )
     prompt = (
         hooks._respond_prompt(patches=True) if skill_name == "test-plan-review"
-        else hooks.build_prompt(
-            ticket_key=ticket_key, mode="resolve", skill_name=skill_name
-        )
+        else hooks._score_prompt(assessment_mode=True)
     )
     output, usage = complete(
         render_prompt(prompt, work_dir),
@@ -258,7 +260,9 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
         raise RuntimeError("PR head changed during scoring; rerun on the new commit")
 
     if skill_name == "test-plan-score":
-        verdict = parse_verdict(output)
+        assessment = parse_verdict(output)
+        write_json(work_dir / "assessment.json", assessment)
+        verdict = classify_assessment(assessment)
         verdict["_cost_summary"] = summary
         write_json(work_dir / "verdict.json", verdict)
         _, errors = hooks.validate_scores(

@@ -31,6 +31,7 @@ CONTEXT_FILES = [
     "skills/test-plan-score/references/osac-test-infra-reference.md",
     "skills/test-plan-score/references/osac-operator-test-patterns.md",
     "skills/test-plan-score/references/scoring-rubric.md",
+    "skills/test-plan-score/references/ci-assessment.md",
 ]
 
 
@@ -324,15 +325,17 @@ class TestPlanHooks:
             "score fields (they will be filled by the scoring action)."
         )
 
-    def _score_prompt(self):
+    def _score_prompt(self, assessment_mode=False):
         skill = (Path(self.skills_path) / "skills/test-plan-score/SKILL.md").read_text()
         if "Integration-boundary Rework veto" not in skill:
             raise RuntimeError("Scoring requires the OSAC-4840 integration-boundary rules")
+        if assessment_mode and "CI assessment mode" not in skill:
+            raise RuntimeError("Scoring requires the CI assessment protocol in skill 0.4.0")
         references = []
         for relpath in CONTEXT_FILES:
             src = Path(self.skills_path) / relpath
             references.append(f"### {src.name}\n{src.read_text()}")
-        return (
+        prompt = (
             PROMPT_INJECTION_BOUNDARY
             + "Follow this authoritative scoring skill and its references. "
             "Preserve its evidence caps and Rework vetoes even at high totals. "
@@ -350,8 +353,9 @@ class TestPlanHooks:
             "cap applies. A nonzero Consistency 1 alone is not a Revise cap. "
             "For high-total Revise, identify the cap, affected case and missing "
             "required evidence. Return final scores and notes that agree. "
-            "Return only the verdict.json object with all its required fields. "
-            "Do not write files or run commands.\n\n"
+            + ("Return only the internal CI assessment object. " if assessment_mode
+               else "Return only the verdict.json object with all its required fields. ")
+            + "Do not write files or run commands.\n\n"
             + skill + "\n\n" + "\n\n".join(references)
             + "\n\nThe supplied grounding-context.json contains read-only OSAC "
             "guidance, command definitions and cited files at the recorded SHA. "
@@ -368,6 +372,16 @@ class TestPlanHooks:
             "Not-run planned tests do not imply a failed execution. "
             "Assess plan readiness separately from execution results."
         )
+        if assessment_mode:
+            prompt += (
+                "\n\nCI assessment mode is selected. Use the internal assessment "
+                "contract in the skill, not its standalone verdict output example. "
+                "Assess all blocking conditions explicitly and provide case/source "
+                "evidence for each cap. Do not supply verdict or total: trusted "
+                "code applies the rubric. Format-only suggestions, consistent "
+                "local aliases and valid uniform priorities are not policy caps."
+            )
+        return prompt
 
     def _respond_prompt(self, patches=False):
         output_format = (

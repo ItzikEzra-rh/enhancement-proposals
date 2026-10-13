@@ -63,6 +63,10 @@ Hooks:
 - A numeric score is insufficient: every affected plan must have a valid Ready
   verdict under the current rubric. Revise, Rework, missing context and review
   errors block the check. Plan readiness does not establish test execution.
+  CI requests an internal assessment with explicit policy facts; trusted code
+  computes the public verdict from scores and the rubric's caps/vetoes. Missing
+  or malformed policy facts fail the check. Existing public verdict fields are
+  preserved; standalone skill scoring retains its documented output format.
 - `/test-plan-score` retries scoring on the current head. `/test-plan-respond`
   does not pass the gate itself; same-repository revisions are scored again,
   and fork revisions must be applied before re-scoring.
