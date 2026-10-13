@@ -378,6 +378,8 @@ class PlanningPromptTests(unittest.TestCase):
             hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills))
             prompt = hooks._score_prompt()
         self.assertIn('planning gate, not an execution gate', prompt)
+        self.assertIn('quality gates govern implemented code/releases', prompt)
+        self.assertIn('Do not treat explicitly proposed work', prompt)
         self.assertIn('can receive Grounding 2 before they', prompt)
         self.assertIn('missing required case still caps readiness', prompt)
         self.assertIn('faked required boundary still triggers Rework', prompt)
