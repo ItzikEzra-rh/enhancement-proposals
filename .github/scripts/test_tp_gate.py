@@ -28,13 +28,26 @@ def verdict(result='Ready'):
     }
 
 
+def assessment(value=None):
+    value = json.loads(json.dumps(value or verdict()))
+    previous = value.pop('verdict')
+    value.pop('total')
+    caps = []
+    if previous in ('Revise', 'Rework'):
+        caps.append({'code': 'missing_required_case' if previous == 'Revise' else 'boundary_mismatch',
+                     'caseIds': ['TC-FR1-01'], 'source': 'component map',
+                     'detail': 'Required case missing' if previous == 'Revise' else 'Required real boundary uses a fake'})
+    value['policy'] = {'integrationRequired': True, 'groundingUsable': True, 'caps': caps}
+    return value
+
+
 @contextmanager
 def scoring_fixture():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         skill = root / 'skills/test-plan-score/SKILL.md'
         skill.parent.mkdir(parents=True)
-        skill.write_text('Authoritative test skill\nIntegration-boundary Rework veto\n')
+        skill.write_text('Authoritative test skill\nIntegration-boundary Rework veto\nCI assessment mode\n')
         for name in CONTEXT_FILES:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +122,7 @@ class ScoringTests(unittest.TestCase):
         with scoring_fixture() as skills, patch.object(
             tp_review, 'fetch_pr_file', side_effect=fetch,
         ), patch.object(tp_review, 'get_pull_request', return_value=PR), patch.object(
-            tp_review, 'complete', side_effect=[(json.dumps(v), {}) for v in outputs],
+            tp_review, 'complete', side_effect=[(json.dumps(assessment(v)), {}) for v in outputs],
         ) as model, tempfile.TemporaryDirectory() as directory, working_directory(directory):
             rows = tp_review.score_pr(
                 PR, self.files, skills_path=str(skills), model='test-model', shadow=True,
@@ -518,3 +531,106 @@ class ResponseReplacementTests(unittest.TestCase):
         ):
             with self.subTest(replacements=replacements), self.assertRaises(ValueError):
                 tp_review.apply_response_replacements(original, {'replacements': replacements})
+
+
+class AssessmentClassificationTests(unittest.TestCase):
+    def test_ci_run_saves_assessment_separately_and_publishes_classified_schema(self):
+        value = assessment()
+        value['scores']['consistency'] = 1
+        with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory:
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills),
+                                  pr_data={'testplan_content': 'plan', 'design_content': 'design', 'prd_content': 'prd'})
+            with patch.object(tp_review, 'complete', return_value=(json.dumps(value), {})) as model, patch.object(
+                tp_review, 'get_pull_request', return_value=PR,
+            ):
+                result = tp_review.run_review(hooks, 'test-plan-score', 'TP-42',
+                                             {'number': 42, 'headRefOid': SHA}, directory,
+                                             model='test', publish=False)
+            self.assertEqual(result['verdict'], 'Ready')
+            self.assertEqual(json.loads((Path(directory) / 'assessment.json').read_text()), value)
+            public = json.loads((Path(directory) / 'verdict.json').read_text())
+            self.assertEqual((public['total'], public['verdict']), (9, 'Ready'))
+            self.assertNotIn('policy', public)
+            self.assertIn('Do not emit verdict or total', model.call_args.args[1])
+
+    def test_old_skill_protocol_is_rejected_before_a_model_request(self):
+        with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory:
+            (skills / 'skills/test-plan-score/SKILL.md').write_text('Integration-boundary Rework veto\n')
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills),
+                                  pr_data={'testplan_content': 'plan', 'design_content': 'design', 'prd_content': 'prd'})
+            with patch.object(tp_review, 'complete') as model, self.assertRaisesRegex(RuntimeError, '0.4.0'):
+                tp_review.run_review(hooks, 'test-plan-score', 'TP-42',
+                                     {'number': 42, 'headRefOid': SHA}, directory,
+                                     model='test', publish=False)
+            model.assert_not_called()
+
+    def test_minor_consistency_issue_at_nine_is_ready_with_complete_policy_facts(self):
+        value = assessment()
+        value['scores']['consistency'] = 1
+        value['feedback'] = 'Optional formatting improvement; no rubric cap applies.'
+        result = tp_gate.classify_assessment(value)
+        self.assertEqual((result['total'], result['verdict']), (9, 'Ready'))
+        self.assertEqual(set(result), set(verdict()))
+        self.assertNotIn('policy', result)
+
+    def test_each_zero_dimension_is_rework_even_at_a_high_total(self):
+        for key in tp_gate.SCORE_KEYS:
+            value = assessment()
+            value['scores'][key] = 0
+            with self.subTest(dimension=key):
+                result = tp_gate.classify_assessment(value)
+                self.assertEqual((result['total'], result['verdict']), (8, 'Rework'))
+
+    def test_named_caps_preserve_high_total_revocation_and_boundary_veto(self):
+        for code, expected in [('missing_required_case', 'Revise'),
+                               ('unusable_grounding', 'Revise'),
+                               ('boundary_mismatch', 'Rework')]:
+            value = assessment()
+            value['policy']['caps'] = [{'code': code, 'caseIds': ['TC-FR4-01'],
+                                       'source': 'component required-boundary map',
+                                       'detail': 'Evidence identifying this required gap/mismatch'}]
+            with self.subTest(code=code):
+                result = tp_gate.classify_assessment(value)
+                self.assertEqual((result['total'], result['verdict']), (10, expected))
+
+    def test_grounding_one_caps_required_integration_but_not_usable_unit_only_work(self):
+        value = assessment()
+        value['scores']['grounding'] = 1
+        self.assertEqual(tp_gate.classify_assessment(value)['verdict'], 'Revise')
+        value['policy']['integrationRequired'] = False
+        self.assertEqual(tp_gate.classify_assessment(value)['verdict'], 'Ready')
+
+    def test_numeric_bands_below_eight_still_require_revision(self):
+        for total in (5, 6, 7):
+            value = assessment()
+            keys = sorted(tp_gate.SCORE_KEYS)
+            value['scores'] = dict.fromkeys(keys, 1)
+            for key in keys[:total - 5]:
+                value['scores'][key] = 2
+            with self.subTest(total=total):
+                result = tp_gate.classify_assessment(value)
+                self.assertEqual((result['total'], result['verdict']), (total, 'Revise'))
+
+    def test_old_model_verdict_cannot_be_promoted_without_assessing_policy(self):
+        old = verdict('Revise')
+        old['scores']['consistency'] = 1
+        old['total'] = 9
+        with self.assertRaisesRegex(ValueError, 'no model verdict'):
+            tp_gate.classify_assessment(old)
+
+    def test_unknown_or_unsupported_caps_and_missing_source_evidence_fail(self):
+        for change in (
+            lambda v: v['policy'].update(integrationRequired=1),
+            lambda v: v['policy'].pop('groundingUsable'),
+            lambda v: v['policy'].update(groundingUsable=False),
+            lambda v: v['scores'].update(grounding=True),
+            lambda v: v.update(verdict='Ready'),
+            lambda v: v['policy']['caps'].append({'code': 'formatting', 'caseIds': ['TC-1'], 'source': 'guide', 'detail': 'style'}),
+            lambda v: v['policy']['caps'].append({'code': 'boundary_mismatch', 'caseIds': [], 'source': 'guide', 'detail': 'fake'}),
+            lambda v: v['policy']['caps'].append({'code': 'missing_required_case', 'caseIds': ['TC-1'], 'source': '', 'detail': 'missing'}),
+            lambda v: v['findings']['critical'].append('Unresolved blocking issue with no corresponding cap'),
+        ):
+            value = assessment()
+            change(value)
+            with self.subTest(assessment=value), self.assertRaises(ValueError):
+                tp_gate.classify_assessment(value)
