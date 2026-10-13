@@ -50,15 +50,21 @@ class SkillSourceTraceabilityTests(unittest.TestCase):
                     verify_step,
                 )
 
-    def test_private_skills_checkout_uses_scoped_token_without_persisting_it(self):
+    def test_pilot_skills_checkout_uses_expected_token_without_persisting_it(self):
         for workflow_name, (workflow_path, checkout_sha) in WORKFLOWS.items():
             with self.subTest(workflow=workflow_name):
                 content = (REPO_ROOT / workflow_path).read_text()
                 checkout_step = extract_step(content, "Checkout OSAC AI skills")
 
                 self.assertIn(f"uses: actions/checkout@{checkout_sha}", checkout_step)
-                self.assertIn(f"repository: {SKILLS_REPOSITORY}", checkout_step)
-                self.assertIn("token: ${{ secrets.OSAC_AI_SKILLS_READ_TOKEN }}", checkout_step)
+                if workflow_name == "Test Plan Review":
+                    # Fork-only rehearsal overlay: public, immutable skill snapshot.
+                    self.assertIn("repository: ItzikEzra-rh/osac-ai-skills", checkout_step)
+                    self.assertIn("ref: 80ebb692c816a1373fb35e863ff8ba88083ae889", checkout_step)
+                    self.assertIn("token: ${{ github.token }}", checkout_step)
+                else:
+                    self.assertIn(f"repository: {SKILLS_REPOSITORY}", checkout_step)
+                    self.assertIn("token: ${{ secrets.OSAC_AI_SKILLS_READ_TOKEN }}", checkout_step)
                 self.assertIn("path: osac-ai-skills", checkout_step)
                 self.assertIn("persist-credentials: false", checkout_step)
                 self.assertNotIn("git clone", checkout_step)
