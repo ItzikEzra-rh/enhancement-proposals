@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: ItzikEzra-rh/osac-ai-skills
-          ref: f09511abd3f349b4a3a7c0bec023d3666a22bc24
+          ref: 25bb3326b798e2eb063a208c0fcf263b42a14b7b
           token: ${{ github.token }}
           path: osac-ai-skills
           persist-credentials: false
