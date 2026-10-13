@@ -10,7 +10,7 @@ This disposable fork fixture evaluates gate behavior. PRD/design are byte-identi
 - Total test cases: 21 (20 automated intent, 1 manual).
 - Fixture identifiers such as `vol-a` are symbolic aliases for the system-generated IDs returned by private Create, never literal request IDs. Capture the returned ID and use that value in Get/List assertions.
 - Execution status: all not run; future additions explicitly proposed. A Ready plan is not executed coverage.
-- Skills SHA: f09511abd3f349b4a3a7c0bec023d3666a22bc24; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
+- Skills SHA: 25bb3326b798e2eb063a208c0fcf263b42a14b7b; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
 
 ## Local behavior and interface mappings
 
