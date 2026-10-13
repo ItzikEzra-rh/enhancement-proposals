@@ -369,7 +369,24 @@ class TestPlanHooks:
             "Assess plan readiness separately from execution results."
         )
 
-    def _respond_prompt(self):
+    def _respond_prompt(self, patches=False):
+        output_format = (
+            "Return only a JSON object with a replacements array. Each entry "
+            "has exactly two string fields: old and new. Copy old verbatim "
+            "from the current TestPlan; it must match exactly once. new is its "
+            "complete replacement. Use small, non-overlapping edits; to insert "
+            "cases, replace a unique heading with the new cases followed by "
+            "that heading. Do not regenerate unchanged clauses, ledgers or "
+            "cases. Preserve all other content and YAML frontmatter."
+            if patches else
+            "Return the complete revised TestPlan.md as your response. Do not "
+            "wrap it in a Markdown code fence or add commentary. Keep the complete "
+            "revision within 12000 output tokens: retain every required scenario "
+            "and concrete expected result, but use source citations instead of "
+            "duplicating long PRD/design quotations or repeated audit prose. "
+            "Preserve requirement mappings and execution evidence. Preserve the "
+            "YAML frontmatter."
+        )
         return (
             PROMPT_INJECTION_BOUNDARY
             + "Revise the test plan based on review feedback.\n\n"
@@ -382,13 +399,7 @@ class TestPlanHooks:
             "3. Ensure the revision doesn't break existing test scenarios\n\n"
             "Use the context files (.context/osac-test-strategy.md, etc.) to "
             "ground any new or revised test scenarios.\n\n"
-            "Return the complete revised TestPlan.md as your response. Do not "
-            "wrap it in a Markdown code fence or add commentary. Keep the complete "
-            "revision within 12000 output tokens: retain every required scenario "
-            "and concrete expected result, but use source citations instead of "
-            "duplicating long PRD/design quotations or repeated audit prose. "
-            "Preserve requirement mappings and execution evidence. Preserve the "
-            "YAML frontmatter."
+            + output_format
         )
 
     # ── Verdict loader ──
