@@ -219,6 +219,7 @@ jobs:
           path: |
             test-plan-score/report.json
             test-plan-score/**/verdict.json
+            test-plan-score/**/assessment.json
             test-plan-score/**/model-output.txt
             test-plan-score/**/model-usage.json
           if-no-files-found: warn

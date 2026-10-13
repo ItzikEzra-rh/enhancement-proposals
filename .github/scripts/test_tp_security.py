@@ -239,7 +239,6 @@ class VertexCallSecurityTests(unittest.TestCase):
                      "design_content": "PR design", "prd_content": "PR requirements"},
         )
         model_output = json.dumps({
-            "verdict": "Ready",
             "scores": {
                 "specificity": 2,
                 "grounding": 2,
@@ -247,7 +246,6 @@ class VertexCallSecurityTests(unittest.TestCase):
                 "actionability": 2,
                 "consistency": 2,
             },
-            "total": 10,
             "criterionNotes": dict.fromkeys(
                 ("specificity", "grounding", "scope_fidelity", "actionability", "consistency"),
                 "Evidence checked",
@@ -255,6 +253,7 @@ class VertexCallSecurityTests(unittest.TestCase):
             "summary": "Ready to implement",
             "feedback": "No changes requested.",
             "findings": {"critical": [], "important": [], "suggestions": []},
+            "policy": {"integrationRequired": True, "groundingUsable": True, "caps": []},
         })
         with tempfile.TemporaryDirectory() as tmpdir, scoring_fixture() as skills:
             hooks.skills_path = str(skills)
