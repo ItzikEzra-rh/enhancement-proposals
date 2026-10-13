@@ -191,6 +191,8 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
         max_tokens=4096 if skill_name == "test-plan-score" else 12000,
         model=model,
     )
+    summary = usage_summary(usage)
+    print(f"  [{skill_name}] {summary}")
     if usage.get("stop_reason") not in (None, "end_turn"):
         raise RuntimeError(
             f"Vertex AI response ended early: {usage['stop_reason']}"
@@ -200,9 +202,6 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
     latest_sha = latest_pr.get("head", {}).get("sha", "")
     if ticket.get("headRefOid") and latest_sha != ticket["headRefOid"]:
         raise RuntimeError("PR head changed during scoring; rerun on the new commit")
-
-    summary = usage_summary(usage)
-    print(f"  [{skill_name}] {summary}")
 
     if skill_name == "test-plan-score":
         verdict = parse_verdict(output)
