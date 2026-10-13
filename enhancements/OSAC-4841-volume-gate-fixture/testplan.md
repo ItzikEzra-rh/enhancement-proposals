@@ -9,7 +9,7 @@ This disposable fork fixture evaluates gate behavior. PRD/design are byte-identi
 - Story aliases: DEV-READ (implementation/unit/component-integration), QE-READ (deployed journey), UI-READ (OSAC-4546/4547). These are local assignments, not fabricated Jira tickets.
 - Total test cases: 21 (20 automated intent, 1 manual).
 - Execution status: all not run; future additions explicitly proposed. A Ready plan is not executed coverage.
-- Skills SHA: 7e430176a586fb88cddb44103e6a383603dad03b; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
+- Skills SHA: 8eea76b8900cd94621897c638d25b27878a27170; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
 
 ## Source-clause ledger and section accounting
 
@@ -20,7 +20,7 @@ All source sections are retained below with exact wording and line numbers. Clau
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > # Volume Get/List Public API
-> 
+>
 > | Field       | Value   |
 > |-------------|---------|
 > | Author(s)   | Zoltan Szabo |
@@ -33,7 +33,7 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Problem Statement
-> 
+>
 > The OSAC storage control plane (OSAC-2872) already provisions standalone storage volumes and tracks them in a central inventory, but that inventory is only reachable through the internal API. Tenants and the OSAC console have no supported way to see the volumes that exist. As a result, the console cannot show storage to users, and tenants have no operational visibility into their own volumes — they cannot confirm a volume's size, tier, or state, and administrators cannot review storage usage for troubleshooting or monitoring. This blocks the console's storage experience and leaves volume inventory effectively invisible to the people who own it.
 
 ### P03: prd.md:14 — In Scope
@@ -41,9 +41,9 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## In Scope
-> 
+>
 > *This release delivers the first, read-only slice of the public Volume API: retrieving individual volumes and listing them. It reuses the volumes already provisioned and inventoried by OSAC-2872 — no new provisioning path is introduced. Mutating operations remain internal and are deferred to later phases of the public Volume API (OSAC-984). See Out of Scope.*
-> 
+>
 > - **Retrieve a volume's details.** A user can fetch a single volume and see its tenant-meaningful attributes — name, tier, size, access mode, and current state — so they can confirm its configuration and availability.
 > - **List volumes.** A user can list the volumes they are entitled to see, consistent with the standard OSAC list contract, so the console and CLI can present and navigate storage inventory.
 > - **Tenant- and project-scoped visibility.** Each caller sees only the volumes they are entitled to under OSAC's standard tenant- and project-based visibility: a Cloud Provider Admin across all tenants, and tenant members within the tenants and projects visible to them — the same visibility model used by every other OSAC resource.
@@ -57,9 +57,9 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Out of Scope
-> 
+>
 > Deferred to later work (this release is read-only Get/List only):
-> 
+>
 > - **Volume lifecycle through the public API** — creating, updating, and deleting volumes. These remain on the internal API and are tracked under [OSAC-984](https://redhat.atlassian.net/browse/OSAC-984).
 > - **Volume expansion, snapshots, clones, and restore** — tracked under [OSAC-48](https://redhat.atlassian.net/browse/OSAC-48).
 > - **Volume attach / detach** — tracked under [OSAC-4884](https://redhat.atlassian.net/browse/OSAC-4884).
@@ -71,18 +71,18 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## User Stories
-> 
+>
 > ### Cloud Provider Admin
-> 
+>
 > - As a Cloud Provider Admin, I want to get and list storage volumes across all tenants, so that I have operational visibility for troubleshooting and monitoring.
-> 
+>
 > ### Tenant Admin / Tenant User
-> 
+>
 > - As a tenant member, I want to get the details of a specific storage volume — its size, tier, and state — so that I can understand its configuration and verify its availability.
 > - As a tenant member, I want to list all volumes visible within my tenant and project scope, so that I can find a volume and navigate storage inventory in the console. Tenant User and Tenant Admin have the same read scope in this release (both see all volumes in the tenant), consistent with OSAC-2872, where both roles share the same storage capabilities.
-> 
+>
 > ### Cloud Infrastructure Admin
-> 
+>
 > - Not affected by this feature.
 
 ### P06: prd.md:51 — Assumptions
@@ -90,7 +90,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Assumptions
-> 
+>
 > - The volumes to be read already exist and are inventoried by the storage control plane (OSAC-2872); this feature adds a read surface, not a new source of data.
 > - Tenant- and project-scoped visibility is the correct and consistent default for this release, matching how every other OSAC resource scopes reads.
 > - The public representation of a volume is a subset of the internal one; fields that are not meaningful to tenants are omitted rather than reshaped.
@@ -100,7 +100,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Dependencies
-> 
+>
 > - **OSAC-2872 (Storage Control Plane):** provides the private Volume API, the volume inventory, and the tier/backend model this read API surfaces. Must be in place for volumes to exist and be retrievable.
 > - **Console UI / UX and UI design gates (OSAC-4546, OSAC-4547):** consume this API to present the volume list and detail views; tracked separately.
 
@@ -109,13 +109,13 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Acceptance Criteria
-> 
+>
 > `List` inherits the standard OSAC list contract (CEL filtering via `this.<field>`, `offset`/`limit` pagination, SQL-like ordering with implicit secondary sort on `id asc`). The following volume-specific criteria apply:
-> 
+>
 > - **Identifier.** `List` items and `Get` both key on the immutable `id`; a `Get` by the `id` of a visible volume returns it, and a `Get` by an id outside the caller's tenants returns `not found` (indistinguishable from a non-existent id, so existence is not leaked across tenants).
 > - **Inventory states.** `List` and `Get` return volumes in every non-archived state tracked by OSAC-2872 (`creating`, `available`, `deleting`). Once a volume is fully deprovisioned its record is archived (`deleted`) and no longer appears through `List`/`Get`. There is no other implicit state filter — callers filter by `status.state` for a subset.
 > - **Isolation.** A caller never receives a volume outside their entitled tenants and projects through either `List` or `Get`, and this is covered by automated tenant- and project-isolation tests.
-> 
+>
 > ---
 
 ### P09: prd.md:72 — Provenance
@@ -123,11 +123,11 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Provenance
-> 
+>
 > Committed: commit @ prd 0.9.0 - 562b610, workspace prd/OSAC-4542-review-followups @ 04971f4
-> 
+>
 > > Authoring phases not recorded this session (commit-time snapshot only).
-> 
+>
 > <!-- ai-workflow-provenance:{"schema_version":1,"provenance_kind":"commit_only","workflow":"prd","workflow_version":"0.9.0","ai_workflows":"562b610","source_repo":"04971f4","source_repo_branch":"prd/OSAC-4542-review-followups","commits_behind_main":0,"commits_ahead_main":1,"main_ref":"main","phases":["commit"],"authoring_modes":["skill"],"context_changed":false,"origin_untracked":false} -->
 
 ### D01: design.md:1 — Header
@@ -148,7 +148,7 @@ Classification: background or explicit exclusion. Destination: Background explai
 >   - "OSAC-2872 (storage control plane — private Volume API)"
 >   - "OSAC-984 (public Volume API epic)"
 > ---
-> 
+>
 > # Volume Get/List Public API
 
 ### D02: design.md:18 — Summary
@@ -156,7 +156,7 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Summary
-> 
+>
 > Add a read-only public projection of the existing private Volume API: a public
 > `Volumes` service exposing only `List` and `Get` over gRPC and REST at
 > `/api/fulfillment/v1/volumes`. The public server wraps the already-shipped
@@ -169,15 +169,15 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Motivation
-> 
+>
 > OSAC-2872 delivered the private Volume API, the volume inventory, and tier→backend
 > resolution, but volumes are only reachable through the internal API. The console
 > and tenants cannot read the inventory, so the storage UI is blocked and tenants
 > have no operational visibility. This enhancement adds the minimal read surface —
 > `Get` and `List` — needed to unblock the console, without touching provisioning.
-> 
+>
 > ### Goals
-> 
+>
 > - Reuse the established public-wraps-private server pattern (as in
 >   `external_ips_server.go`), adding no new data path.
 > - Inherit tenant scoping and CEL filtering from the private server / generic DAO
@@ -185,9 +185,9 @@ Classification: background or explicit exclusion. Destination: Background explai
 > - Expose only tenant-meaningful fields; keep internal routing (backend, protocol,
 >   hub, vendor volume id) private.
 > - Introduce no schema change — reuse the OSAC-2872 `volumes` table.
-> 
+>
 > ### Non-Goals
-> 
+>
 > - Volume lifecycle through the public API (create/update/delete/resize) — deferred
 >   to later [OSAC-984](https://redhat.atlassian.net/browse/OSAC-984) phases.
 > - Volume expansion, snapshots, clones, and restore —
@@ -204,9 +204,9 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Proposal
-> 
+>
 > Enumerated changes, all in `fulfillment-service`:
-> 
+>
 > 1. **Public proto (generated from private via cleanapi).** Opt the private
 >    `Volumes` service and `Volume` type into public generation; expose only `List`
 >    and `Get`; strip the internal status fields (`backend`, `protocol`, `hub`,
@@ -230,15 +230,15 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 >    and REST handler (`start_rest_gateway_cmd.go`).
 > 5. **Authorization** (`authz.rego`): allow tenant clients on the public
 >    `Volumes/Get` and `Volumes/List` methods.
-> 
+>
 > ### Workflow Description
-> 
+>
 > Actors: **Tenant User / Tenant Admin** (read their tenant's volumes via console or
 > CLI), **Cloud Provider Admin** (read across all tenants). Starting state:
 > volumes already exist and are inventoried by OSAC-2872.
-> 
+>
 > Request path:
-> 
+>
 > ```text
 > HTTP/gRPC client
 >   -> REST gateway (grpc-gateway mux)            [REST callers only]
@@ -247,15 +247,15 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 >   -> PrivateVolumesServer.List/Get
 >   -> GenericServer[Volume] (tenant scoping + CEL filter) -> GenericDAO -> PostgreSQL
 > ```
-> 
+>
 > Steps (List): the caller requests `GET /api/fulfillment/v1/volumes` (optionally
 > with filter/order/offset/limit); OPA authorizes the method; the private delegate
 > scopes rows to the caller's visible tenants and applies the CEL filter; the public
 > server maps each row to the public shape and returns items + size + total. Get is
 > the same by id, returning `NotFound` when the id is not visible/absent.
-> 
+>
 > ### API Extensions
-> 
+>
 > - New **public gRPC service** `osac.public.v1.Volumes` with `List` and `Get`, and
 >   REST transcoding at `/api/fulfillment/v1/volumes` and `/{id}`.
 > - New public `Volume` message (subset of the private one).
@@ -273,22 +273,22 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## UX Alignment
-> 
+>
 > The `osac-ux` repo (whose hand-written `@temp-api` files an earlier draft of this
 > section referenced) is **deprecated** (osac-project/osac-workspace#224) and is no
 > longer a source of truth for UI types. The authoritative UI types live in
 > **`osac-ui`** (`libs/types`) and are **generated directly from the backend proto**
 > via `pnpm gen-types`.
-> 
+>
 > The public Volume API is net-new: `osac-ui` currently has only the *private*
 > Volume types (generated from OSAC-2872) — no *public* Volume types exist yet,
 > because this EP is what introduces them. Once this EP's public proto merges and
 > `osac-ui` runs `gen-types`, the public `Volume` types are generated straight from
 > this proto, so there are **no deviations to reconcile** by construction. The only
 > UI-side action is regenerating types after this lands. (Confirmed with the UI owner.)
-> 
+>
 > ### Implementation Details/Notes/Constraints
-> 
+>
 > - The private→public field hiding is done by a `GenericMapper` with
 >   `SetStrict(false)` — the copy silently omits fields absent from the public type
 >   (the same mechanism `external_ips_server.go` uses). There is no `inMapper`
@@ -314,17 +314,17 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 >   committed state of other read-only public resources (e.g.
 >   `baremetal_instance_types_service`). A follow-up to automate this in
 >   `dev.py build protos` (or bump cleanapi) is a candidate.
-> 
+>
 > ### Security Considerations
-> 
+>
 > Read-only endpoints; no new secrets or data-mutation paths. Tenant isolation is
 > enforced by the existing tenancy layer (below). Internal routing fields that could
 > leak backend topology are excluded from the public type by construction. Input is
 > limited to an id and standard list parameters; CEL filters are constrained to the
 > public field set.
-> 
+>
 > ### Failure Handling and Recovery
-> 
+>
 > - **Not found / not visible:** `Get` returns `NotFound`; `List` excludes rows
 >   outside the caller's visible tenants.
 > - **Invalid CEL filter / order:** returns `InvalidArgument` from the existing
@@ -332,9 +332,9 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 > - **Mapping error:** returns `Internal` (logged); no partial data is returned.
 > - **Delegate/DB errors:** propagated unchanged from the private server. No retries
 >   or side effects (reads are idempotent).
-> 
+>
 > ### RBAC / Tenancy
-> 
+>
 > Scoping is inherited, not reimplemented. OPA (`authz.rego`) gates *method* access —
 > this EP adds `Volumes/Get` and `Volumes/List` to the tenant-client allowlist.
 > *Row* scoping comes from `GenericServer`/`GenericDAO` via
@@ -342,9 +342,9 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 > caller's tenants (plus shared). This is **tenant- and project-level** scoping — the same model
 > every other resource uses; role does not change which rows are visible, only which
 > methods may be called.
-> 
+>
 > Authorization matrix for this EP:
-> 
+>
 > | Actor | `Get` / `List` allowed? | Rows returned |
 > |---|---|---|
 > | Tenant User | Yes | All volumes in the caller's own tenant(s) (+ `shared`) |
@@ -352,25 +352,25 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 > | Cloud Provider Admin | Yes | All volumes across all tenants, per `DetermineVisibleTenants` |
 > | Unauthenticated | No | — (`Unauthenticated`) |
 > | Mutating methods (`Create`/`Update`/`Delete`/`Signal`) | No public method exists | — (private API only) |
-> 
+>
 > Tenant User and Tenant Admin have identical read scope, consistent with OSAC-2872,
 > where both roles share the same storage capabilities. A Cloud Provider Admin sees
 > all tenants. The row predicate is the same `tenant IN (visible)` for everyone;
 > there is no role-specific query path.
-> 
+>
 > ### Observability and Monitoring
-> 
+>
 > No new observability changes. Existing gRPC metrics, structured request logging,
 > and the interceptor chain apply to the new methods automatically.
-> 
+>
 > ### Risks and Mitigations
-> 
+>
 > | Risk | Impact | Mitigation |
 > |---|---|---|
 > | cleanapi leaves unused imports in generated public protos | `buf lint` fails on regeneration | Prune the two imports (documented); follow-up to automate in tooling |
-> 
+>
 > ### Drawbacks
-> 
+>
 > Read-only is a partial capability — the console can display but not manage volumes
 > until later phases.
 
@@ -379,7 +379,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Alternatives (Not Implemented)
-> 
+>
 > - **Hand-write the public proto.** Rejected — public protos are generated from
 >   private via cleanapi by convention; hand-writing would diverge from every other
 >   resource and drift on regeneration.
@@ -395,7 +395,7 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Open Questions [optional]
-> 
+>
 > None.
 
 ### D08: design.md:241 — Test Plan
@@ -403,7 +403,7 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Test Plan
-> 
+>
 > ### Unit Tests
 > - Public `Get` returns the public projection; `List` returns items with size/total.
 > - Field mapping: public `Volume` carries spec (tier/size/access mode) and status
@@ -425,12 +425,12 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 > - Authz: a tenant client is allowed on `Volumes/Get` + `/List` and denied on
 >   (nonexistent) public `Volumes/Create` + `/Delete`.
 > - Private server: builds without a tier resolver; `Create` without a resolver fails.
-> 
+>
 > ### Integration Tests
 > - Against the kind `osac-dev` cluster: list/get standalone volumes created via the
 >   private path through the public gRPC endpoint, asserting the public shape and
 >   tenant scoping (a subject in tenant A does not see tenant B's volumes).
-> 
+>
 > ### E2E Tests
 > - Add a read-path check to the osac-test-infra vmaas suite: provision a volume via
 >   the existing path, then Get/List it through the public API and assert the public
@@ -441,7 +441,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Graduation Criteria
-> 
+>
 > Ships as part of the public Volume API (0.3). No separate maturity ladder; the
 > read endpoints graduate with the rest of the public API. Later OSAC-984 phases add
 > the mutating lifecycle.
@@ -451,7 +451,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Upgrade / Downgrade Strategy
-> 
+>
 > Additive, read-only API surface with no schema change. Upgrade adds the new
 > endpoints; downgrade removes them with no data migration. No existing client must
 > change to keep working.
@@ -461,7 +461,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Version Skew Strategy
-> 
+>
 > The public API is generated from the private API and served by the same process;
 > there is no cross-component skew. An older console simply does not call the new
 > endpoints. The public `Volume` is a strict subset of the private type, so proto
@@ -472,7 +472,7 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: required behavior / deliverable. Destination: FR1–FR8 assertions below; non-test work and explicit exclusions in Gaps
 
 > ## Support Procedures
-> 
+>
 > Failures surface as standard gRPC/REST errors (`NotFound`, `InvalidArgument`,
 > `PermissionDenied`, `Internal`) visible in request logs. The endpoints can be
 > effectively disabled by removing the `Volumes/Get`+`/List` entries from the OPA
@@ -484,9 +484,9 @@ Classification: required behavior / deliverable. Destination: FR1–FR8 assertio
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Infrastructure Needed [optional]
-> 
+>
 > None.
-> 
+>
 > ---
 
 ### D14: design.md:308 — Provenance
@@ -494,11 +494,11 @@ Classification: background or explicit exclusion. Destination: Background explai
 Classification: background or explicit exclusion. Destination: Background explains existing inventory/read-only intent; alternatives are rejected, non-goals are excluded; no test obligation added.
 
 > ## Provenance
-> 
+>
 > Committed: commit @ design 0.9.0 - f7f8c6d, workspace main @ b177ce9 (dirty)
-> 
+>
 > > Authoring phases not recorded this session (commit-time snapshot only).
-> 
+>
 > <!-- ai-workflow-provenance:{"schema_version":1,"provenance_kind":"commit_only","workflow":"design","workflow_version":"0.9.0","ai_workflows":"f7f8c6d","source_repo":"b177ce9 (dirty)","source_repo_branch":"main","commits_behind_main":0,"commits_ahead_main":0,"main_ref":"main","phases":["commit","commit","commit"],"authoring_modes":["skill"],"context_changed":false,"origin_untracked":false} -->
 
 ## Execution evidence matrix
@@ -509,7 +509,7 @@ The canonical ownership follows `docs/INTEGRATION-TESTING.md`, `fulfillment-serv
 |---|---|---|---|---|---|
 | E-U | FR1/2/5/8, IC1/3; TC-FR1-02, TC-FR2-02, TC-FR5-01, TC-FR5-02, TC-FR5-03, TC-FR8-01, TC-FR8-03 | fulfillment-service, DEV-READ [DEV], Unit; in-process public/private delegation, mapper and generated descriptor assertions | Extend `fulfillment-service/internal/servers/volumes_server_test.go`, `fulfillment-service/internal/servers/private_volumes_server_test.go`; fixtures in `fulfillment-service/internal/servers/servers_suite_test.go`. Existing command `ginkgo run --timeout 10m internal/servers`, cwd `fulfillment-service/`, defined in component AGENTS.md. New generator fault fixture proposed in same suite. | Go/Ginkgo and suite database transaction setup required; database may be real as suite setup but assertions are in-process; tier resolver, mapper/delegate error seams simulated; no real provider/operator/AAP. | not run; suite paths exist but new frozen-contract cases proposed; current lifecycle code differs from frozen read-only oracle. Implementation work owned DEV-READ; no separate follow-up ticket allocated. |
 | E-I | FR1/2/3/4/6/7, IC1/2/3; TC-FR1-01, TC-FR2-01, TC-FR3-01, TC-FR3-02, TC-FR3-03, TC-FR4-01, TC-FR4-02, TC-FR4-03, TC-FR6-01, TC-FR6-02, TC-FR7-01, TC-FR7-02 | fulfillment-service, DEV-READ [DEV], Integration (canonical component-integration); client→deployed API→JWT/OPA/tenancy→private delegate→PostgreSQL | Extend `fulfillment-service/it/it_public_volumes_test.go` and `fulfillment-service/it/it_volume_lifecycle_test.go`; clients/setup in `fulfillment-service/it/it_suite_test.go`. Existing command from root: `make -C osac-installer test PLATFORM=kind PROFILE=dev NS=osac SUITE=fulfillment`, defined in `osac-installer/Makefile` / `fulfillment-service/AGENTS.md`. | Dedicated fresh osac-dev Kind, KUBECONFIG, host mappings, install-infra and service image, real API/gateway/PostgreSQL/auth; private admin clients seed fixtures with DeferCleanup. Storage provider/operator/AAP omitted deliberately: this boundary validates inventory projection/isolation, not provisioning. CLI harness builds checkout CLI. Project restriction fixture extension proposed; row predicates use standard tenancy, no new product field. | not run; existing harness available; extensions proposed; fixture setup for project restriction must use standard tenancy. DEV-READ owns implementation and fixture work; no separate follow-up ticket allocated. |
-| E-E | FR8 and design E2E, IC1/2/3; TC-FR8-02 | tests/e2e, QE-READ [QE], E2E; provisioner/provider→inventory→public read→tenant client | Proposed `tests/e2e/storage/test_volume_public_reads.py`, following cleanup/polling in existing `tests/e2e/storage/test_tenant_storage_lifecycle.py`, `tests/e2e/vmaas/regression/test_compute_instance_storage_tier.py`, shared `tests/e2e/conftest.py`, `tests/e2e/core/grpc_client.py`, `tests/e2e/core/runner.py`. Proposed command `uv run pytest tests/e2e/storage/test_volume_public_reads.py`, cwd OSAC root (pytest execution pattern defined by tests/e2e/AGENTS.md; new file does not yet exist). | Real deployed fulfillment/PostgreSQL/auth, operator, AAP and real storage provider; tenant A/B credentials, tier/backend, private volume provisioning client and cleanup helper to be added. No mocked provider or reconciliation. Standard bounded polling, no product timing SLA invented. | not run; proposed harness, private provision/read helper additions and disposable full environment required. QE-READ owns work; no assigned person or separate infrastructure ticket exists, explicitly unresolved. Existing storage lifecycle may use mock VMS; that variant cannot prove this real provider boundary. |
+| E-E | FR8 and design E2E, IC1/2/3; TC-FR8-02 | tests/e2e, QE-READ [QE], E2E; provisioner/provider→inventory→public read→tenant client | Proposed `tests/e2e/storage/test_volume_public_reads.py`, following cleanup/polling in existing `tests/e2e/storage/test_tenant_storage_lifecycle.py`, `tests/e2e/vmaas/regression/test_compute_instance_storage_tier.py`, shared `tests/e2e/conftest.py`, `tests/e2e/core/grpc_client.py`, `tests/e2e/core/runner.py`. Proposed command `uv run pytest tests/e2e/storage/test_volume_public_reads.py`, cwd OSAC root (pytest execution pattern defined by tests/e2e/AGENTS.md; new file does not yet exist). | Real deployed fulfillment/PostgreSQL/auth, operator, AAP and real storage provider; tenant A/B credentials, tier/backend, private volume provisioning client and cleanup helper to be added. No mocked provider or reconciliation. Standard bounded polling, no product timing SLA invented. | not run; proposed harness, private provision/read helper additions and disposable full environment required. QE-READ owns work; QE-READ [QE] owns the proposed harness and private Volume gRPC client additions; no assigned person or separate infrastructure ticket exists, explicitly unresolved. This is disclosed setup work, not an omitted required E2E case. Existing storage lifecycle may use mock VMS; that variant cannot prove this real provider boundary. |
 | E-M | FR7, IC1/2/3; TC-FR7-03 | osac-ui consumer, UI-READ [QE], E2E; manual deployed browser→gateway→service | Manual browser procedure in case; cwd N/A because browser execution; new UI consumer work OSAC-4546/4547, generated types under `osac-ui/libs/types` | Real console, API/auth/PostgreSQL, tenant credentials, seeded private volume; provisioning omitted because separate E-E proves it | not run; consumer UI delivery tracked [OSAC-4546](https://redhat.atlassian.net/browse/OSAC-4546) / [OSAC-4547](https://redhat.atlassian.net/browse/OSAC-4547); no result claimed |
 
 Supplemental build validation: `make -C proto generate` and `make -C proto lint` from OSAC root, definitions `proto/Makefile` and `proto/AGENTS.md`; `pnpm gen-types` for UI per design. Generation is not a test tier. Never hand-edit generated files despite the historical design import-pruning note.
@@ -1062,4 +1062,3 @@ Every result above is independently falsifiable. Stable assertion IDs refer to e
 | Executed tests | 0 |
 
 Planning check: source sections accounted; assertions mapped with concrete results; execution paths and proposed gaps disclosed. Planning readiness does not mean test execution. No product sources were modified. Correction round 1 adds missing error/project/shared/deployed cases and replaces old unresolved ordering classification with implementation drift.
-
