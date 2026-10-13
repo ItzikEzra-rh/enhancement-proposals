@@ -312,3 +312,5 @@ Committed: commit @ design 0.9.0 - f7f8c6d, workspace main @ b177ce9 (dirty)
 > Authoring phases not recorded this session (commit-time snapshot only).
 
 <!-- ai-workflow-provenance:{"schema_version":1,"provenance_kind":"commit_only","workflow":"design","workflow_version":"0.9.0","ai_workflows":"f7f8c6d","source_repo":"b177ce9 (dirty)","source_repo_branch":"main","commits_behind_main":0,"commits_ahead_main":0,"main_ref":"main","phases":["commit","commit","commit"],"authoring_modes":["skill"],"context_changed":false,"origin_untracked":false} -->
+
+<!-- disposable design-only head update; testplan blob unchanged -->
