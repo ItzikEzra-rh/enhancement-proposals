@@ -4,13 +4,38 @@
 
 This disposable fork fixture evaluates gate behavior. PRD/design are byte-identical copies of approved OSAC-4542 sources. Current OSAC source is execution guidance, not a new product oracle. No Volume implementation or deployed feature tests were executed here.
 
-- Requirements covered: 8 of 8 document-local behavior groups FR1–FR8; authoritative sources have no formal FR/NFR or AC numbering.
+- Behavioral groups planned: the eight local aliases FR1–FR8 defined in the table below. This is a count of this plan's groups; the authoritative PRD/design define no formal FR/NFR or AC IDs. Source-clause accounting and assertion preservation are audited separately below.
 - Interface aliases: IC1 public gRPC Get/List; IC2 REST paths; IC3 public Volume projection.
 - Story aliases: DEV-READ (implementation/unit/component-integration), QE-READ (deployed journey), UI-READ (OSAC-4546/4547). These are local assignments, not fabricated Jira tickets.
 - Total test cases: 21 (20 automated intent, 1 manual).
 - Fixture identifiers such as `vol-a` are symbolic aliases for the system-generated IDs returned by private Create, never literal request IDs. Capture the returned ID and use that value in Get/List assertions.
 - Execution status: all not run; future additions explicitly proposed. A Ready plan is not executed coverage.
-- Skills SHA: 80ebb692c816a1373fb35e863ff8ba88083ae889; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
+- Skills SHA: f09511abd3f349b4a3a7c0bec023d3666a22bc24; OSAC SHA: 1411b33bfb0fa109e4299675b8038906df56b0b5.
+
+## Local behavior and interface mappings
+
+FR1–FR8 are aliases for organizing cases; they do not rename or invent approved
+requirements. Pxx and Dxx identify the exact quoted source sections in the
+source-clause ledger. The assertion-to-result audit preserves the individual
+obligations and expected results within these sections.
+
+| Local group | Approved behavior organized here | Source-clause IDs | Cases |
+|---|---|---|---|
+| FR1 | Public read projection and absence of public mutations | P03, P08, D02, D04 | TC-FR1-01, TC-FR1-02 |
+| FR2 | System-generated id, name/display_name distinctions and immutable naming scope | P03, P08, D04 | TC-FR2-01, TC-FR2-02 |
+| FR3 | List filtering, pagination, ordering and counts | P03, P08, D04 | TC-FR3-01 through TC-FR3-03 |
+| FR4 | Tenant/project visibility, shared/provider access and authorization | P03, P05, P06, P08, D04, D12 | TC-FR4-01 through TC-FR4-03 |
+| FR5 | Public schema allowlist, hidden routing fields and mapper/delegate handling | P03, P06, P08, D04 | TC-FR5-01 through TC-FR5-03 |
+| FR6 | Observable inventory states and archive exclusion | P03, P08, D04, D08 | TC-FR6-01, TC-FR6-02 |
+| FR7 | Public access channels, CLI/UI consumers and id-based navigation | P03, P05, P08, D04, D05 | TC-FR7-01 through TC-FR7-03 |
+| FR8 | Optional resolver, deployed provision/read journey, API artifacts and compatibility | P03, P07, P08, D04, D08, D09, D10, D11, D13 | TC-FR8-01 through TC-FR8-03 |
+
+IC1 denotes the public gRPC Get/List contract; IC2 denotes the REST routes;
+IC3 denotes the public Volume projection. Each case's metadata now identifies
+its asserted interfaces. CLI/UI consumer cases identify IC3 explicitly;
+transport parity is asserted by TC-FR7-01. A descriptor/mapper check remains
+Unit coverage even when it names an interface; it does not establish a deployed
+boundary.
 
 ## Source-clause ledger and section accounting
 
@@ -625,7 +650,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR1 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR1 local alias, IC1, IC3 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -646,7 +671,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR1 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR1 local alias, IC1, IC2 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -668,7 +693,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR2 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR2 local alias, IC1, IC3 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -689,7 +714,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR2 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR2 local alias, IC1, IC3 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -712,7 +737,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR3 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR3 local alias, IC1 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -732,7 +757,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR3 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR3 local alias, IC1 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -752,7 +777,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR3 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR3 local alias, IC1 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -774,7 +799,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR4 local alias, IC1 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -795,7 +820,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR4 local alias, IC1 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -815,7 +840,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR4 local alias, IC1 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -837,7 +862,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR5 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR5 local alias, IC3 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -857,7 +882,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR5 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR5 local alias, IC3 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -877,7 +902,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR5 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR5 local alias, IC1, IC3 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -899,7 +924,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR6 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR6 local alias, IC1, IC3 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -919,7 +944,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR6 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR6 local alias, IC1, IC3 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -941,7 +966,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR7 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR7 local alias, IC1, IC2, IC3 | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -961,7 +986,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR7 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
+| DEV-READ | FR7 local alias, IC3 (CLI/UI consumer) | high | automated | Integration | [DEV] | E-I |
 
 ##### Preconditions
 
@@ -981,7 +1006,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| UI-READ | FR7 local alias, IC1/2/3 as applicable | high | manual | E2E | [QE] | E-M |
+| UI-READ | FR7 local alias, IC3 (console consumer) | high | manual | E2E | [QE] | E-M |
 
 ##### Preconditions
 
@@ -1004,7 +1029,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR8 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR8 local alias, IC1, IC3 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -1024,7 +1049,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| QE-READ | FR8 local alias, IC1/2/3 as applicable | high | automated | E2E | [QE] | E-E |
+| QE-READ | FR8 local alias, IC1, IC3 | high | automated | E2E | [QE] | E-E |
 
 ##### Preconditions
 
@@ -1046,7 +1071,7 @@ commit `1411b33bfb0fa109e4299675b8038906df56b0b5`.
 
 | Story | AC | Priority | Automation | Tier | Owner | Evidence |
 |---|---|---|---|---|---|---|
-| DEV-READ | FR8 local alias, IC1/2/3 as applicable | high | automated | Unit | [DEV] | E-U |
+| DEV-READ | FR8 local alias, IC1, IC2, IC3 | high | automated | Unit | [DEV] | E-U |
 
 ##### Preconditions
 
@@ -1169,3 +1194,5 @@ Planning check: source sections accounted; assertions mapped with concrete resul
 Correction round 2: select real VAST prerequisites and explicitly separate the proposed historical read-only descriptor fixture from current CRUD suites. Proposed commands/files remain proposed; no passing execution or new product requirement is claimed.
 
 Continuation planning pass, correction 1: specify project membership/JWT setup and real provider lab steps from pinned source. Preserve all existing clauses, assertion IDs and 21 cases. Allocation and proposed helper execution remain not run; a plan score must not be presented as feature execution.
+
+Traceability follow-up pass: clarify local group counts, approved source-clause mappings and exact per-case interfaces. All 21 case IDs and assertion IDs are preserved; expected results and frozen PRD/design bytes are unchanged. This local revision has not been model-scored or executed.
