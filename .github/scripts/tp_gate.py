@@ -108,13 +108,19 @@ def grounding_context(root, documents):
     # Only literal paths under known component roots are candidates. Paths
     # that are absent are disclosed, not guessed or executed as commands.
     prefixes = "|".join(re.escape(x) for x in COMPONENTS)
-    cited = set(re.findall(
-        rf"(?:{prefixes})/[A-Za-z0-9_./-]+",
+    cited = {}
+    for match in re.finditer(
+        rf"((?:{prefixes})/[A-Za-z0-9_./-]+)(?::([0-9]+)-([0-9]+))?",
         "\n".join(documents.values()),
-    ))
+    ):
+        name, start, end = match.groups()
+        cited.setdefault(name, []).append(
+            (int(start), int(end)) if start is not None else None
+        )
     files = {}
     unavailable = []
-    for name in sorted(paths | cited):
+    excerpts = {}
+    for name in sorted(paths | cited.keys()):
         path = root / name
         if name not in tracked or not path.is_file():
             unavailable.append(name)
@@ -122,11 +128,31 @@ def grounding_context(root, documents):
         if path.is_symlink() or not path.resolve().is_relative_to(root):
             raise RuntimeError(f"Unsafe grounding source: {name}")
         try:
-            files[name] = path.read_text()
+            content = path.read_text()
         except UnicodeDecodeError:
             unavailable.append(name)
+            continue
+        ranges = cited.get(name, [])
+        lines = content.splitlines(keepends=True)
+        explicit_ranges = sorted({item for item in ranges if item is not None})
+        if any(start < 1 or end < start or end > len(lines)
+               for start, end in explicit_ranges):
+            raise RuntimeError(f"Invalid source line range for {name}")
+        # Mandatory guidance and unqualified citations always retain the full
+        # source. Excerpts are explicit evidence, never silent truncation.
+        if name not in paths and ranges and None not in ranges:
+            ranges = explicit_ranges
+            excerpts[name] = {"ranges": ranges, "total_lines": len(lines)}
+            content = "\n".join(
+                f"Source excerpt: {name}:{start}-{end} "
+                f"(file has {len(lines)} lines; other lines omitted)\n"
+                + "".join(lines[start - 1:end])
+                for start, end in ranges
+            )
+        files[name] = content
     payload = {"osac_sha": git_sha(root), "files": files,
-               "unavailable_cited_paths": unavailable}
+               "unavailable_cited_paths": unavailable,
+               "excerpted_paths": excerpts}
     if len(json.dumps(payload)) > 600_000:
         raise RuntimeError("Grounding context exceeds the review budget; narrow the plan")
     return payload
