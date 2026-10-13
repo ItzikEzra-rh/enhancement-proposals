@@ -345,6 +345,11 @@ class TestPlanHooks:
             "Consistency deductions must name actual counts/IDs/grouping or "
             "contradictions, not consistent local aliases, optional extra columns "
             "or uniform valid priorities. "
+            "Calculate the verdict from final scores and explicit rubric caps. "
+            "An 8-10 total with no zero requires Ready unless a named rubric "
+            "cap applies. A nonzero Consistency 1 alone is not a Revise cap. "
+            "For high-total Revise, identify the cap, affected case and missing "
+            "required evidence. Return final scores and notes that agree. "
             "Return only the verdict.json object with all its required fields. "
             "Do not write files or run commands.\n\n"
             + skill + "\n\n" + "\n\n".join(references)

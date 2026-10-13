@@ -426,6 +426,14 @@ if __name__ == '__main__':
 
 
 class PlanningPromptTests(unittest.TestCase):
+    def test_verdict_uses_numeric_band_with_only_defined_caps(self):
+        with scoring_fixture() as skills:
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills))
+            prompt = hooks._score_prompt()
+        self.assertIn('8-10 total with no zero requires Ready', prompt)
+        self.assertIn('Consistency 1 alone is not a Revise cap', prompt)
+        self.assertIn('identify the cap, affected case', prompt)
+
     def test_scoring_distinguishes_planned_coverage_from_execution(self):
         with scoring_fixture() as skills:
             hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills))
