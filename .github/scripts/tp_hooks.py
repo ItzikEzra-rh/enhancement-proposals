@@ -336,6 +336,15 @@ class TestPlanHooks:
             PROMPT_INJECTION_BOUNDARY
             + "Follow this authoritative scoring skill and its references. "
             "Preserve its evidence caps and Rework vetoes even at high totals. "
+            "Grade readiness with the skill and scoring rubric. Current OSAC "
+            "component maps govern tiers/boundaries; legacy reference execution "
+            "quality gates govern implemented code/releases, not plan readiness. "
+            "Grounding deductions must name missing/ambiguous row fields, an "
+            "omitted required case or an unsupported existing-source claim. "
+            "Do not treat explicitly proposed work as an existing-source claim. "
+            "Consistency deductions must name actual counts/IDs/grouping or "
+            "contradictions, not consistent local aliases, optional extra columns "
+            "or uniform valid priorities. "
             "Return only the verdict.json object with all its required fields. "
             "Do not write files or run commands.\n\n"
             + skill + "\n\n" + "\n\n".join(references)
