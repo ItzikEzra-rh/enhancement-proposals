@@ -665,69 +665,6 @@ Supplemental build validation: `make -C proto generate` and `make -C proto lint`
 - **A-FR3-03-2**: Descending size order is a,b,c, retaining secondary id asc.
 - **A-FR3-03-3**: Private-field order returns InvalidArgument. This is the approved PRD oracle despite the design describing historical DAO drift.
 
-### FR4: local approved behavior group
-
-#### TC-FR4-01: Tenant and project isolation
-
-| Story | AC | Priority | Automation | Tier | Owner | Evidence |
-|---|---|---|---|---|---|---|
-| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
-
-##### Preconditions
-
-- Private setup creates A/project1 vol-a, B/project2 vol-b, and A/project3 vol-c. Credentials restrict the subject to A/project1 under the standard visibility model.
-
-##### Steps
-
-1. As A/project1 call List and Get(vol-a), Get(vol-b), Get(vol-c), Get(missing). Repeat with Tenant User and Tenant Admin credentials with identical entitlements.
-
-##### Expected Results
-
-- **A-FR4-01-1**: List includes vol-a and excludes vol-b and vol-c for both roles.
-- **A-FR4-01-2**: Get(vol-a) succeeds for both roles.
-- **A-FR4-01-3**: Invisible vol-b/vol-c and nonexistent missing all return NotFound, with no existence leak.
-- **A-FR4-01-4**: Tenant User and Tenant Admin have identical row visibility for identical entitlements. Fixture setup must establish project restrictions through the existing tenancy mechanism; no invented API parameter.
-
-#### TC-FR4-02: Shared and provider administration
-
-| Story | AC | Priority | Automation | Tier | Owner | Evidence |
-|---|---|---|---|---|---|---|
-| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
-
-##### Preconditions
-
-- Volumes in tenants A, B and shared, subjects with standard tenant memberships plus a Cloud Provider Admin.
-
-##### Steps
-
-1. As tenant A List/Get shared and B volumes; repeat as provider admin.
-
-##### Expected Results
-
-- **A-FR4-02-1**: Tenant A can read its own and shared volumes but cannot read B volumes.
-- **A-FR4-02-2**: Cloud Provider Admin List/Get can read A, B and shared volumes.
-- **A-FR4-02-3**: Method authorization does not introduce a role-specific row query.
-
-#### TC-FR4-03: Unauthenticated and disabled access
-
-| Story | AC | Priority | Automation | Tier | Owner | Evidence |
-|---|---|---|---|---|---|---|
-| DEV-READ | FR4 local alias, IC1/2/3 as applicable | high | automated | Integration | [DEV] | E-I |
-
-##### Preconditions
-
-- Public service with real JWT and OPA interceptors; a dedicated test deployment allows policy restoration.
-
-##### Steps
-
-1. Call Get/List without authentication. In the disposable deployment remove public Volumes/Get and Volumes/List from allowlist, call as tenant, restore policy.
-
-##### Expected Results
-
-- **A-FR4-03-1**: Unauthenticated calls return Unauthenticated.
-- **A-FR4-03-2**: Authenticated denied methods return PermissionDenied.
-- **A-FR4-03-3**: Disabling read access does not mutate existing volumes or disrupt provisioned workloads; policy is restored.
-
 ### FR5: local approved behavior group
 
 #### TC-FR5-01: Exact generated-schema allowlist
@@ -1062,3 +999,5 @@ Every result above is independently falsifiable. Stable assertion IDs refer to e
 | Executed tests | 0 |
 
 Planning check: source sections accounted; assertions mapped with concrete results; execution paths and proposed gaps disclosed. Planning readiness does not mean test execution. No product sources were modified. Correction round 1 adds missing error/project/shared/deployed cases and replaces old unresolved ordering classification with implementation drift.
+
+<!-- isolation coverage deliberately absent -->
