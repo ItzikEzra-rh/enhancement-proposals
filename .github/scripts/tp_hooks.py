@@ -682,13 +682,17 @@ class TestPlanHooks:
             "Assisted-by: Test Plan Review (Claude on Vertex AI) "
             "<noreply@anthropic.com>"
         )
-        self._gh([
+        response = self._gh([
             "api", f"repos/{head_repo}/contents/{testplan_path}", "-X", "PUT",
             "-f", f"message={message}",
             "-f", f"content={content}",
             "-f", f"sha={testplan_sha}",
             "-f", f"branch={head_branch}",
         ], check=True)
+        commit_sha = json.loads(response).get("commit", {}).get("sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+            raise RuntimeError("GitHub response did not return the created commit SHA")
+        self.pr_data["response_commit_sha"] = commit_sha
         print(f"  [{ticket_key}] Committed revised TestPlan.md via GitHub API")
 
     # ── Cost formatter ──

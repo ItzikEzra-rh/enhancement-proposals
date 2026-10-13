@@ -222,16 +222,35 @@ class ScoringTests(unittest.TestCase):
         original = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
         revised = {**original, 'head': {**original['head'], 'sha': 'b' * 40}}
         with patch.dict(os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA, 'TP_SHADOW': 'false'}), patch.object(
-            tp_review, 'get_pull_request', side_effect=[original, revised],
+            tp_review, 'get_pull_request', side_effect=[original, original, revised],
         ), patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
             tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
-        ), patch.object(tp_review, 'run_review'), patch.object(tp_check, 'start') as start, patch.object(
+        ), patch.object(tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40}), patch.object(tp_review.time, 'sleep') as sleep, patch.object(tp_check, 'start') as start, patch.object(
             tp_review, 'score_main', return_value=1,
         ) as score:
             self.assertEqual(tp_review.respond_main(), 1)
             start.assert_called_once_with(tp_review.REPO, 'b' * 40)
             score.assert_called_once()
             self.assertEqual(os.environ['PR_HEAD_SHA'], 'b' * 40)
+            sleep.assert_called_once_with(1)
+
+    def test_response_head_that_moves_or_stays_stale_cannot_skip_scoring_silently(self):
+        original = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
+        moved = {**original, 'head': {**original['head'], 'sha': 'c' * 40}}
+        for reads in ([original, moved], [original] * 6):
+            with self.subTest(reads=len(reads)), patch.dict(os.environ, {
+                'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA, 'TP_SHADOW': 'false',
+            }), patch.object(tp_review, 'IN_CI', False), patch.object(
+                tp_review, 'get_pull_request', side_effect=reads,
+            ), patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
+                tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
+            ), patch.object(tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40}), patch.object(
+                tp_review.time, 'sleep'
+            ), patch.object(tp_check, 'start') as start, patch.object(tp_review, 'score_main') as score:
+                with self.assertRaises(RuntimeError):
+                    tp_review.respond_main()
+                start.assert_called_once_with(tp_review.REPO, 'b' * 40)
+                score.assert_not_called()
 
     def test_bad_json_and_model_failure_block(self):
         for output in (('not json', {}), RuntimeError('Model unavailable')):

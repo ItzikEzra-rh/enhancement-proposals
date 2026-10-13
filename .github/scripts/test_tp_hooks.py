@@ -262,7 +262,7 @@ class ApplyRespondTests(unittest.TestCase):
             output = Path(tmpdir) / "testplan-output.md"
             revised = "# Revised plan\n" + ("scenario details\n" * 50)
             output.write_text(revised)
-            with patch.object(hooks, "_gh", return_value="") as gh:
+            with patch.object(hooks, "_gh", return_value=json.dumps({"commit": {"sha": "b" * 40}})) as gh:
                 hooks._apply_respond(
                     "TP-42", {}, tmpdir,
                     ticket={"_ep_slug": "osac-42", "title": "OSAC-42: read API"},
@@ -282,6 +282,7 @@ class ApplyRespondTests(unittest.TestCase):
         self.assertIn("branch=test-plan/osac-42", args)
         encoded = args[args.index("-f", args.index("-f") + 1) + 1]
         self.assertEqual(base64.b64decode(encoded.removeprefix("content=")).decode(), revised)
+        self.assertEqual(hooks.pr_data["response_commit_sha"], "b" * 40)
 
     def test_response_commit_uses_safe_no_issue_fallback(self):
         hooks = TestPlanHooks(repo="test/repo", skills_path="/tmp", shadow=False,
@@ -291,7 +292,7 @@ class ApplyRespondTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "testplan-output.md").write_text("x" * 600)
             for title in ("plain title", "prefix\nOSAC-42: embedded issue"):
-                with self.subTest(title=title), patch.object(hooks, "_gh") as gh:
+                with self.subTest(title=title), patch.object(hooks, "_gh", return_value=json.dumps({"commit": {"sha": "b" * 40}})) as gh:
                     hooks._apply_respond("TP-42", {}, directory, ticket={"title": title})
                 message = next(arg for arg in gh.call_args.args[0]
                                if arg.startswith("message="))

@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -287,6 +288,7 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
         work_dir=work_dir,
         ticket=ticket,
     )
+    return {**verdict, "response_commit_sha": hooks.pr_data.get("response_commit_sha")}
 
 
 def respond_main():
@@ -348,19 +350,33 @@ def respond_main():
     print(f"EP slug: {ep_slug}, branch: {pr.get('head', {}).get('ref', '')}")
 
     try:
-        run_review(
+        revision = run_review(
             hooks, skill_name, ticket_key, ticket,
             Path(f"workdir-{skill_name}"), model=model,
         )
         # GITHUB_TOKEN response commits do not trigger another workflow.
         # Explicitly score the new head instead of leaving it without a check.
-        latest = get_pull_request(pr_number)
-        revised_sha = latest.get("head", {}).get("sha", "")
-        if (not shadow and pr_data["head_repo"] == REPO
-                and revised_sha != head_sha):
+        if not shadow and pr_data["head_repo"] == REPO:
+            revised_sha = (revision or {}).get("response_commit_sha", "")
+            if (not isinstance(revised_sha, str)
+                    or not re.fullmatch(r"[0-9a-f]{40}", revised_sha)
+                    or revised_sha == head_sha):
+                raise RuntimeError("Response did not return a new commit SHA")
             from tp_check import start
             start(REPO, revised_sha)
             os.environ["PR_HEAD_SHA"] = revised_sha
+            # Contents API returns the authoritative commit before the PR API
+            # necessarily reflects it. Do not silently skip its required check.
+            for attempt in range(5):
+                current_sha = get_pull_request(pr_number).get("head", {}).get("sha", "")
+                if current_sha == revised_sha:
+                    break
+                if current_sha != head_sha:
+                    raise RuntimeError("PR head moved after the response commit")
+                if attempt < 4:
+                    time.sleep(1)
+            else:
+                raise RuntimeError("Response commit is not yet visible in PR head; retry scoring")
             return score_main()
     except Exception as exc:
         print(f"  [{skill_name}] failed: {exc}", file=sys.stderr)
