@@ -367,6 +367,59 @@ class GroundingTests(unittest.TestCase):
             self.assertNotIn('osac-operator/untracked.go', context['files'])
             self.assertIn('osac-operator/untracked.go', context['unavailable_cited_paths'])
 
+    def test_explicit_source_ranges_preserve_identity_and_full_guidance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(['git', 'init', '-q', directory], check=True)
+            source = 'osac-operator/internal/example.go'
+            for name in ('AGENTS.md', 'docs/INTEGRATION-TESTING.md',
+                         *(f'{c}/AGENTS.md' for c in tp_gate.COMPONENTS), source):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('one\ntwo\nthree\nfour\nfive\n')
+            subprocess.run(['git', '-C', directory, 'add', '.'], check=True)
+            with patch.object(tp_gate, 'git_sha', return_value=SHA):
+                context = tp_gate.grounding_context(root, {
+                    'plan': f'{source}:2-3 {source}:5-5 osac-operator/AGENTS.md:2-3',
+                })
+                self.assertEqual(context['osac_sha'], SHA)
+                self.assertEqual(context['excerpted_paths'][source], {
+                    'ranges': [(2, 3), (5, 5)], 'total_lines': 5,
+                })
+                excerpt = context['files'][source]
+                self.assertIn('other lines omitted', excerpt)
+                self.assertIn('two\nthree\n', excerpt)
+                self.assertIn('five\n', excerpt)
+                self.assertNotIn('one\n', excerpt)
+                self.assertNotIn('four\n', excerpt)
+                self.assertEqual(context['files']['osac-operator/AGENTS.md'],
+                                 'one\ntwo\nthree\nfour\nfive\n')
+                full = tp_gate.grounding_context(root, {
+                    'plan': f'{source}:2-3 {source}',
+                })
+                self.assertNotIn(source, full['excerpted_paths'])
+                self.assertEqual(full['files'][source],
+                                 'one\ntwo\nthree\nfour\nfive\n')
+
+    def test_invalid_source_ranges_fail_before_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(['git', 'init', '-q', directory], check=True)
+            source = 'osac-operator/internal/example.go'
+            for name in ('AGENTS.md', 'docs/INTEGRATION-TESTING.md',
+                         *(f'{c}/AGENTS.md' for c in tp_gate.COMPONENTS), source):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('one\ntwo\nthree\n')
+            subprocess.run(['git', '-C', directory, 'add', '.'], check=True)
+            for reference in (f'{source}:0-1', f'{source}:3-2',
+                              f'{source}:2-4',
+                              f'{source}:2-4 {source}',
+                              'osac-operator/AGENTS.md:2-4'):
+                with self.subTest(reference=reference), self.assertRaisesRegex(
+                        RuntimeError, 'Invalid source line range'):
+                    tp_gate.grounding_context(root, {'plan': reference})
+
 
 if __name__ == '__main__':
     unittest.main()
