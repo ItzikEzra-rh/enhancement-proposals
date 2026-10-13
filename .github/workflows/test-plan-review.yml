@@ -21,8 +21,7 @@ jobs:
                       github.event.comment.author_association))
     runs-on: ubuntu-latest
     permissions:
-      issues: write  # acknowledge authorized slash commands
-      pull-requests: read  # resolve the PR head
+      pull-requests: write  # PR-comment reactions and PR context
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       head_sha: ${{ steps.resolve.outputs.head_sha }}
@@ -42,6 +41,7 @@ jobs:
           fi
 
       - name: Acknowledge comment
+        continue-on-error: true  # cosmetic feedback must not block scoring
         if: github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

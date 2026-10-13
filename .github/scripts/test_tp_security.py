@@ -31,6 +31,13 @@ class TestPlanWorkflowSecurityTests(unittest.TestCase):
         self.assertIn("Authenticate to GCP with Workload Identity Federation", workflow)
         self.assertIn("vars.GCP_WORKLOAD_IDENTITY_PROVIDER", workflow)
 
+    def test_slash_acknowledgement_has_pr_permission_and_cannot_block_scoring(self):
+        workflow = (REPO_ROOT / ".github/workflows/test-plan-review.yml").read_text()
+        resolver = workflow.split("  resolve-pr:", 1)[1].split("  review:", 1)[0]
+        self.assertIn("pull-requests: write", resolver)
+        self.assertIn("Acknowledge comment\n        continue-on-error: true", resolver)
+        self.assertIn("Resolve PR context", resolver)
+
     def test_review_does_not_run_an_agent_container_or_pr_supplied_code(self):
         source = (REPO_ROOT / ".github/scripts/tp_review.py").read_text()
 
