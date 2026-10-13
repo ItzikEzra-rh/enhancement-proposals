@@ -76,3 +76,5 @@ Committed: commit @ prd 0.9.0 - 562b610, workspace prd/OSAC-4542-review-followup
 > Authoring phases not recorded this session (commit-time snapshot only).
 
 <!-- ai-workflow-provenance:{"schema_version":1,"provenance_kind":"commit_only","workflow":"prd","workflow_version":"0.9.0","ai_workflows":"562b610","source_repo":"04971f4","source_repo_branch":"prd/OSAC-4542-review-followups","commits_behind_main":0,"commits_ahead_main":1,"main_ref":"main","phases":["commit"],"authoring_modes":["skill"],"context_changed":false,"origin_untracked":false} -->
+
+<!-- disposable context-edit rehearsal; approved behavior unchanged -->
