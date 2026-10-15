@@ -78,3 +78,7 @@ Hooks:
   records omitted lines; an unqualified citation includes the full file.
   Required component guidance is always included in full. Invalid ranges and
   oversized context fail the check before any model request.
+- Referenced `TC-{req}-{NN}` IDs must have unique Markdown case-definition
+  headings. Audit tables and evidence-matrix mentions do not define cases.
+  Missing or duplicate definitions fail before a model request; semantic
+  completeness still requires assessment against the PRD/design.

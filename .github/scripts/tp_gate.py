@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 SCORE_KEYS = {"specificity", "grounding", "scope_fidelity",
@@ -43,6 +44,37 @@ def affected_enhancements(files):
             if match and match[2] in DOCUMENT_NAMES:
                 affected.add(match[1])
     return sorted(affected)
+
+
+def validate_case_definitions(plan):
+    """Require referenced TC IDs to have real case headings, not just audit rows."""
+    visible = []
+    fence = None
+    for line in re.sub(r"<!--.*?-->", "", plan, flags=re.DOTALL).splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if marker:
+            token = marker[1]
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+            continue
+        if fence is None:
+            visible.append(line)
+    text = "\n".join(visible)
+    case_id = r"TC-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+"
+    references = set(re.findall(r"\b" + case_id + r"\b", text))
+    definitions = re.findall(
+        r"^ {0,3}#{1,6} +(?:\*\*|`)?(" + case_id + r")\b", text, re.MULTILINE,
+    )
+    missing = sorted(references - set(definitions))
+    duplicates = sorted(case for case, count in Counter(definitions).items() if count > 1)
+    errors = []
+    if missing:
+        errors.append("Referenced test cases have no definition heading: " + ", ".join(missing))
+    if duplicates:
+        errors.append("Duplicate test-case definition headings: " + ", ".join(duplicates))
+    return errors
 
 
 def validate_verdict(verdict):

@@ -69,6 +69,36 @@ def working_directory(path):
         os.chdir(previous)
 
 
+class CaseDefinitionTests(unittest.TestCase):
+    def test_audit_and_matrix_references_cannot_replace_case_definitions(self):
+        plan = "| E-I | TC-FR4-01, TC-FR4-02 |\n#### TC-FR4-01: Isolation\n"
+        self.assertEqual(tp_gate.validate_case_definitions(plan), [
+            'Referenced test cases have no definition heading: TC-FR4-02',
+        ])
+
+    def test_defined_case_references_pass(self):
+        self.assertEqual(tp_gate.validate_case_definitions(
+            '| E-I | TC-FR4-01 |\n#### TC-FR4-01: Isolation\n'), [])
+
+    def test_code_and_comments_are_not_definitions_or_references(self):
+        for fence in ('```', '~~~~'):
+            with self.subTest(fence=fence):
+                plan = ('TC-FR4-01\n' + fence + '\n#### TC-FR4-01: example\n'
+                        + fence + '\n<!-- #### TC-FR4-01: comment -->')
+                self.assertIn('TC-FR4-01', tp_gate.validate_case_definitions(plan)[0])
+                self.assertEqual(tp_gate.validate_case_definitions(
+                    fence + '\nTC-FR4-02\n' + fence), [])
+
+    def test_duplicate_definitions_fail(self):
+        self.assertEqual(tp_gate.validate_case_definitions(
+            '#### TC-FR4-01: One\n#### TC-FR4-01: Two'), [
+                'Duplicate test-case definition headings: TC-FR4-01',
+            ])
+
+    def test_legacy_text_without_case_ids_remains_model_reviewable(self):
+        self.assertEqual(tp_gate.validate_case_definitions('A legacy plan'), [])
+
+
 class VerdictTests(unittest.TestCase):
     def test_ready_and_high_score_nonready_vetoes_are_valid(self):
         for result in ('Ready', 'Revise', 'Rework'):
@@ -143,6 +173,15 @@ class ScoringTests(unittest.TestCase):
         rows, count = self.run_score([bad, verdict()])
         self.assertEqual(count, 2)
         self.assertEqual([r['verdict'] for r in rows], ['Error', 'Ready'])
+
+    def test_undefined_case_blocks_before_model_but_other_plan_still_scored(self):
+        self.documents['enhancements/one/testplan.md']['content'] = (
+            '| Required isolation | TC-FR4-01 |\n#### TC-FR1-01: Read volume\n'
+        )
+        rows, count = self.run_score([verdict()])
+        self.assertEqual(count, 1)
+        self.assertEqual([row['verdict'] for row in rows], ['Error', 'Ready'])
+        self.assertIn('TC-FR4-01', rows[0]['summary'])
 
     def test_retry_recomputes_even_when_a_score_comment_exists(self):
         with patch.object(TestPlanHooks, 'check_already_scored', return_value='Already scored') as cache:
