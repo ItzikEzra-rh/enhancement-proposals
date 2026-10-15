@@ -20,7 +20,7 @@ from urllib.parse import quote
 from tp_hooks import TestPlanHooks
 from tp_model import complete
 from tp_gate import (PLAN_NAMES, DESIGN_NAMES, affected_enhancements,
-                     classify_assessment, git_sha, write_json)
+                     classify_assessment, git_sha, validate_case_definitions, write_json)
 
 
 REPO = os.environ.get("GITHUB_REPOSITORY", "osac-project/enhancement-proposals")
@@ -434,6 +434,9 @@ def score_pr(pr, files, *, skills_path, model, shadow):
                 continue
             for path, plan in plans:
                 try:
+                    errors = validate_case_definitions(plan["content"])
+                    if errors:
+                        raise ValueError("Invalid test-case structure: " + "; ".join(errors))
                     ticket = {
                         "number": pr["number"], "title": pr.get("title", ""),
                         "body": pr.get("body", ""), "headRefOid": head_sha,
