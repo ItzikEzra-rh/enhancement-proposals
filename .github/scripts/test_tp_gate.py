@@ -51,7 +51,8 @@ def scoring_fixture():
         for name in CONTEXT_FILES:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('Authoritative scoring reference: ' + path.name)
+            path.write_text('Authoritative scoring reference: ' + path.name
+                            + (' undisclosed_dependencies' if path.name == 'ci-assessment.md' else ''))
         with patch.dict(os.environ, {'TP_OSAC_PATH': str(root)}), patch(
             'tp_hooks.grounding_context',
             return_value={'osac_sha': SHA, 'files': {'AGENTS.md': 'Touched area evidence'}},
@@ -67,6 +68,60 @@ def working_directory(path):
         yield
     finally:
         os.chdir(previous)
+
+
+class ApplicabilityPolicyTests(unittest.TestCase):
+    def test_shared_policy_covers_aliases_missing_removed_and_prd_only(self):
+        base = 'enhancements/feature'
+        for names, exists, files, expected in [
+            ({'TestPlan.md'}, True, [], 'Review'),
+            ({'DESIGN.md'}, True, [], 'Error'),
+            ({'prd.md'}, True, [], 'Not applicable'),
+            (set(), False, [{'filename': base + '/testplan.md', 'status': 'removed'}], 'Not applicable'),
+            ({'notes.md'}, True, [{'filename': base + '/testplan.md', 'status': 'removed'}], 'Error'),
+            ({'notes.md'}, True, [{'filename': 'enhancements/other/testplan.md',
+                                 'previous_filename': base + '/TestPlan.md', 'status': 'renamed'}], 'Error'),
+        ]:
+            with self.subTest(names=names, files=files):
+                self.assertEqual(tp_gate.plan_applicability(base, names, exists, files), expected)
+
+    def test_changed_missing_directory_is_not_treated_as_removed(self):
+        with self.assertRaisesRegex(RuntimeError, 'unavailable'):
+            tp_gate.plan_applicability('enhancements/feature', set(), False, [
+                {'filename': 'enhancements/feature/design.md', 'status': 'modified'},
+            ])
+
+
+class ReviewBudgetTests(unittest.TestCase):
+    def test_exact_plan_and_prompt_limits_are_allowed(self):
+        tp_gate.enforce_review_budget(
+            enhancement_count=tp_gate.MAX_AFFECTED_ENHANCEMENTS,
+            plan_count=tp_gate.MAX_PLAN_FILES,
+            prompt_sizes=[tp_gate.MAX_PROMPT_BYTES, tp_gate.MAX_PROMPT_BYTES],
+        )
+
+    def test_exceeding_any_fixed_limit_requires_splitting_the_pr(self):
+        cases = (
+            dict(enhancement_count=tp_gate.MAX_AFFECTED_ENHANCEMENTS + 1,
+                 plan_count=1),
+            dict(enhancement_count=1, plan_count=tp_gate.MAX_PLAN_FILES + 1),
+            dict(enhancement_count=1, plan_count=1,
+                 prompt_sizes=[tp_gate.MAX_PROMPT_BYTES + 1]),
+            dict(enhancement_count=1, plan_count=3,
+                 prompt_sizes=[tp_gate.MAX_PROMPT_BYTES] * 3),
+        )
+        for limits in cases:
+            with self.subTest(limits=limits), self.assertRaisesRegex(
+                RuntimeError, 'Split into smaller PRs',
+            ):
+                tp_gate.enforce_review_budget(**limits)
+
+    def test_plan_count_includes_both_case_aliases(self):
+        self.assertEqual(tp_gate.plan_file_count({'testplan.md'}), 1)
+        self.assertEqual(tp_gate.plan_file_count({'TestPlan.md'}), 1)
+        self.assertEqual(
+            tp_gate.plan_file_count({'testplan.md', 'TestPlan.md'}), 2,
+        )
 
 
 class CaseDefinitionTests(unittest.TestCase):
@@ -166,6 +221,54 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(count, 2)
         self.assertEqual([r['verdict'] for r in rows], ['Ready', 'Revise'])
         self.assertEqual(rows[0]['path'], 'enhancements/one/testplan.md')
+
+    def test_oversized_final_plan_blocks_every_model_call(self):
+        self.documents['enhancements/two/testplan.md']['content'] = (
+            '界' * (tp_gate.MAX_PROMPT_BYTES // 3 + 1)
+        )
+        with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory, working_directory(directory):
+            def fetch(repo, sha, path, **kw):
+                return self.documents.get(path)
+
+            with patch.object(tp_review, 'fetch_pr_file', side_effect=fetch), patch.object(
+                tp_review, 'complete', return_value=(json.dumps(assessment()), {}),
+            ) as model:
+                with self.assertRaisesRegex(RuntimeError, 'Split into smaller PRs'):
+                    tp_review.score_pr(
+                        PR, self.files, skills_path=str(skills),
+                        model='test-model', shadow=True,
+                    )
+            model.assert_not_called()
+
+    def test_aggregate_prompt_limit_blocks_before_first_model_call(self):
+        self.files = [
+            {'filename': f'enhancements/{slug}/testplan.md', 'status': 'modified'}
+            for slug in ('one', 'two', 'three')
+        ]
+        self.documents['enhancements/three/testplan.md'] = {
+            'content': 'x' * 900_000, 'sha': 'blob',
+        }
+        for name in ('design.md', 'prd.md'):
+            self.documents[f'enhancements/three/{name}'] = {
+                'content': 'Supporting document', 'sha': 'blob',
+            }
+        for slug in ('one', 'two', 'three'):
+            self.documents[f'enhancements/{slug}/testplan.md'] = {
+                'content': 'x' * 900_000, 'sha': 'blob',
+            }
+        with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory, working_directory(directory):
+            def fetch(repo, sha, path, **kw):
+                return self.documents.get(path)
+
+            with patch.object(tp_review, 'fetch_pr_file', side_effect=fetch), patch.object(
+                tp_review, 'complete', return_value=(json.dumps(assessment()), {}),
+            ) as model:
+                with self.assertRaisesRegex(RuntimeError, 'Split into smaller PRs'):
+                    tp_review.score_pr(
+                        PR, self.files, skills_path=str(skills),
+                        model='test-model', shadow=True,
+                    )
+            model.assert_not_called()
 
     def test_invalid_model_result_does_not_prevent_other_plan_evaluation(self):
         bad = verdict()
@@ -270,12 +373,14 @@ class ScoringTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Duplicate'):
             tp_review.parse_verdict('{"verdict": "Rework", "verdict": "Ready"}')
 
-    def test_response_revision_starts_a_new_score_check(self):
+    def test_response_revision_waits_past_four_seconds_then_scores(self):
         original = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
         revised = {**original, 'head': {**original['head'], 'sha': 'b' * 40}}
         with patch.dict(os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA, 'TP_SHADOW': 'false'}), patch.object(
-            tp_review, 'get_pull_request', side_effect=[original, original, revised],
-        ), patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
+            tp_review, 'get_pull_request', side_effect=[original] * 5 + [revised],
+        ) as pull, patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
+            tp_review, 'fetch_pr_file', return_value={'content': 'plan', 'sha': 'blob'},
+        ), patch.object(
             tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
         ), patch.object(tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40}), patch.object(tp_review.time, 'sleep') as sleep, patch.object(tp_check, 'start') as start, patch.object(
             tp_review, 'score_main', return_value=1,
@@ -284,25 +389,67 @@ class ScoringTests(unittest.TestCase):
             start.assert_called_once_with(tp_review.REPO, 'b' * 40)
             score.assert_called_once()
             self.assertEqual(os.environ['PR_HEAD_SHA'], 'b' * 40)
-            sleep.assert_called_once_with(1)
+            sleep_durations = [entry.args[0] for entry in sleep.call_args_list]
+            self.assertEqual(sleep_durations, [1, 2, 4, 8])
+            self.assertGreater(sum(sleep_durations), 4)
+            self.assertEqual(pull.call_count, 6)
 
-    def test_response_head_that_moves_or_stays_stale_cannot_skip_scoring_silently(self):
+    def test_response_head_move_or_staleness_finalizes_the_check_without_scoring(self):
         original = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
         moved = {**original, 'head': {**original['head'], 'sha': 'c' * 40}}
-        for reads in ([original, moved], [original] * 6):
-            with self.subTest(reads=len(reads)), patch.dict(os.environ, {
+        cases = (
+            ([original, moved], 'c' * 40, 'head moved', []),
+            ([original] * 9, SHA, 'not yet visible', [1, 2, 4, 8, 10, 10, 10]),
+        )
+        for reads, current_sha, error, expected_sleeps in cases:
+            with self.subTest(current_sha=current_sha), tempfile.TemporaryDirectory() as directory, working_directory(directory), patch.dict(os.environ, {
                 'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA, 'TP_SHADOW': 'false',
+                'GITHUB_RUN_ID': '99',
             }), patch.object(tp_review, 'IN_CI', False), patch.object(
                 tp_review, 'get_pull_request', side_effect=reads,
-            ), patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
+            ) as pull, patch.object(tp_review, 'get_changed_files', return_value=self.files), patch.object(
+                tp_review, 'fetch_pr_file', return_value={'content': 'plan', 'sha': 'blob'},
+            ), patch.object(
                 tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
-            ), patch.object(tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40}), patch.object(
-                tp_review.time, 'sleep'
-            ), patch.object(tp_check, 'start') as start, patch.object(tp_review, 'score_main') as score:
-                with self.assertRaises(RuntimeError):
+            ), patch.object(
+                tp_review, 'run_review', return_value={'response_commit_sha': 'b' * 40},
+            ), patch.object(tp_review.time, 'sleep') as sleep, patch.object(
+                tp_check, 'api', side_effect=[
+                    {'id': 123}, {'head': {'sha': current_sha}}, {},
+                ],
+            ) as check_api, patch.object(tp_review, 'score_main') as score:
+                with self.assertRaisesRegex(RuntimeError, error):
                     tp_review.respond_main()
-                start.assert_called_once_with(tp_review.REPO, 'b' * 40)
                 score.assert_not_called()
+                self.assertEqual(pull.call_count, len(reads))
+                self.assertEqual(
+                    [entry.args[0] for entry in sleep.call_args_list],
+                    expected_sleeps,
+                )
+                self.assertEqual(tp_check.finish(tp_review.REPO, '42', 'failure'), 1)
+                self.assertEqual(
+                    check_api.call_args_list[-1].kwargs['payload']['conclusion'],
+                    'cancelled',
+                )
+
+    def test_response_rejects_oversized_plan_batch_before_revision_request(self):
+        pr = {**PR, 'head': {**PR['head'], 'repo': {'full_name': tp_review.REPO}}}
+        files = [
+            {'filename': f'enhancements/{slug}/testplan.md', 'status': 'modified'}
+            for slug in ('one', 'two', 'three')
+        ]
+        with patch.dict(os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA}), patch.object(
+            tp_review, 'get_pull_request', return_value=pr,
+        ), patch.object(tp_review, 'get_changed_files', return_value=files), patch.object(
+            tp_review, 'fetch_pr_file', return_value={'content': 'plan', 'sha': 'blob'},
+        ) as fetch, patch.object(
+            tp_review, 'fetch_pr_documents', return_value={'head_repo': tp_review.REPO},
+        ) as documents, patch.object(tp_review, 'run_review') as review:
+            with self.assertRaisesRegex(RuntimeError, 'Split into smaller PRs'):
+                tp_review.respond_main()
+        self.assertEqual(fetch.call_count, 2 * len(files))
+        documents.assert_not_called()
+        review.assert_not_called()
 
     def test_bad_json_and_model_failure_block(self):
         for output in (('not json', {}), RuntimeError('Model unavailable')):
@@ -389,6 +536,37 @@ class CheckLifecycleTests(unittest.TestCase):
                 self.assertEqual(output.read_text(), f'needs_review={str(needs_review).lower()}\n')
                 self.assertEqual(json.loads(tp_check.REPORT_PATH.read_text())['conclusion'], conclusion)
 
+    def test_prepare_caps_affected_enhancements_before_directory_fetches(self):
+        files = [
+            {'filename': f'enhancements/feature-{i}/design.md', 'status': 'modified'}
+            for i in range(tp_gate.MAX_AFFECTED_ENHANCEMENTS + 1)
+        ]
+        with patch.object(tp_check, 'api', side_effect=[
+            {**PR, 'changed_files': len(files)}, files,
+        ]) as api:
+            with self.assertRaisesRegex(RuntimeError, 'Split into smaller PRs'):
+                tp_check.prepare('test/repo', '42', SHA)
+        self.assertEqual(api.call_count, 2)
+
+    def test_prepare_counts_unchanged_plan_aliases_across_affected_enhancements(self):
+        files = [
+            {'filename': 'enhancements/one/design.md', 'status': 'modified'},
+            {'filename': 'enhancements/two/prd.md', 'status': 'modified'},
+            {'filename': 'enhancements/three/design.md', 'status': 'modified'},
+        ]
+        listing = lambda *names: [{'name': name} for name in names]
+        with patch.object(tp_check, 'api', side_effect=[
+            {**PR, 'changed_files': len(files)}, files,
+            listing('design.md', 'testplan.md'),
+            listing('DESIGN.md', 'TestPlan.md', 'testplan.md'),
+            listing('prd.md', 'TestPlan.md', 'testplan.md'),
+        ]) as api:
+            with self.assertRaisesRegex(
+                RuntimeError, '5 plan files.*Split into smaller PRs',
+            ):
+                tp_check.prepare('test/repo', '42', SHA)
+        self.assertEqual(api.call_count, 5)
+
     def test_absent_directory_cannot_hide_a_modified_document(self):
         with patch.object(tp_check, 'api', side_effect=[
             {**PR, 'changed_files': 1},
@@ -440,9 +618,15 @@ class GroundingTests(unittest.TestCase):
             (root / 'osac-operator/untracked.go').write_text('Must not be loaded')
             subprocess.run(['git', '-C', directory, 'add', 'AGENTS.md', 'docs', *(f'{c}/AGENTS.md' for c in tp_gate.COMPONENTS), 'osac-operator/Makefile', 'osac-operator/internal'], check=True)
             with patch.object(tp_gate, 'git_sha', return_value=SHA):
-                context = tp_gate.grounding_context(root, {'plan': 'osac-operator/internal/test.go osac-operator/untracked.go osac-operator/../../secret'})
+                context = tp_gate.grounding_context(root, {
+                    'plan': 'osac-operator/internal/test.go. '
+                            'osac-operator/untracked.go:1-2. '
+                            'osac-operator/../../secret',
+                })
             self.assertEqual(context['osac_sha'], SHA)
             self.assertIn('osac-operator/internal/test.go', context['files'])
+            self.assertNotIn('osac-operator/internal/test.go.',
+                             context['unavailable_cited_paths'])
             self.assertNotIn('osac-operator/untracked.go', context['files'])
             self.assertIn('osac-operator/untracked.go', context['unavailable_cited_paths'])
 
@@ -492,16 +676,12 @@ class GroundingTests(unittest.TestCase):
                 path.write_text('one\ntwo\nthree\n')
             subprocess.run(['git', '-C', directory, 'add', '.'], check=True)
             for reference in (f'{source}:0-1', f'{source}:3-2',
-                              f'{source}:2-4',
+                              f'{source}:2-4', f'{source}:2-4.',
                               f'{source}:2-4 {source}',
                               'osac-operator/AGENTS.md:2-4'):
                 with self.subTest(reference=reference), self.assertRaisesRegex(
                         RuntimeError, 'Invalid source line range'):
                     tp_gate.grounding_context(root, {'plan': reference})
-
-
-if __name__ == '__main__':
-    unittest.main()
 
 
 class PlanningPromptTests(unittest.TestCase):
@@ -528,7 +708,8 @@ class PlanningPromptTests(unittest.TestCase):
         self.assertIn('Do not treat explicitly proposed work', prompt)
         self.assertIn('can receive Grounding 2 before they', prompt)
         self.assertIn('missing required case still caps readiness', prompt)
-        self.assertIn('faked required boundary still triggers Rework', prompt)
+        self.assertIn('wrong-tier/faked required boundary', prompt)
+        self.assertIn('undisclosed required-integration dependencies still triggers Rework', prompt)
 
 
 class ResponseReplacementTests(unittest.TestCase):
@@ -603,6 +784,17 @@ class AssessmentClassificationTests(unittest.TestCase):
                                      model='test', publish=False)
             model.assert_not_called()
 
+    def test_pre_disclosure_protocol_is_rejected_before_a_model_request(self):
+        with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory:
+            (skills / 'skills/test-plan-score/references/ci-assessment.md').write_text('Old protocol')
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills),
+                                  pr_data={'testplan_content': 'plan', 'design_content': 'design', 'prd_content': 'prd'})
+            with patch.object(tp_review, 'complete') as model, self.assertRaisesRegex(RuntimeError, '0.5.0'):
+                tp_review.run_review(hooks, 'test-plan-score', 'TP-42',
+                                     {'number': 42, 'headRefOid': SHA}, directory,
+                                     model='test', publish=False)
+            model.assert_not_called()
+
     def test_minor_consistency_issue_at_nine_is_ready_with_complete_policy_facts(self):
         value = assessment()
         value['scores']['consistency'] = 1
@@ -623,7 +815,8 @@ class AssessmentClassificationTests(unittest.TestCase):
     def test_named_caps_preserve_high_total_revocation_and_boundary_veto(self):
         for code, expected in [('missing_required_case', 'Revise'),
                                ('unusable_grounding', 'Revise'),
-                               ('boundary_mismatch', 'Rework')]:
+                               ('boundary_mismatch', 'Rework'),
+                               ('undisclosed_dependencies', 'Rework')]:
             value = assessment()
             value['policy']['caps'] = [{'code': code, 'caseIds': ['TC-FR4-01'],
                                        'source': 'component required-boundary map',
@@ -673,3 +866,7 @@ class AssessmentClassificationTests(unittest.TestCase):
             change(value)
             with self.subTest(assessment=value), self.assertRaises(ValueError):
                 tp_gate.classify_assessment(value)
+
+
+if __name__ == '__main__':
+    unittest.main()

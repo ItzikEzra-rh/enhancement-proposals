@@ -12,11 +12,61 @@ SCORE_KEYS = {"specificity", "grounding", "scope_fidelity",
 PLAN_NAMES = ("testplan.md", "TestPlan.md")
 DESIGN_NAMES = ("design.md", "Design.md", "DESIGN.md", "README.md")
 DOCUMENT_NAMES = {*PLAN_NAMES, *DESIGN_NAMES, "prd.md"}
+# Keep GitHub reads and paid model requests bounded for public-fork PRs. A
+# 1.2 MB rendered prompt leaves room above the roughly 474 KB live grounding
+# context after document/reference serialization; 2.4 MB permits two such
+# plans in the usual batch while still bounding four smaller plans.
+MAX_AFFECTED_ENHANCEMENTS = 4
+MAX_PLAN_FILES = 4
+MAX_PROMPT_BYTES = 1_200_000
+MAX_TOTAL_PROMPT_BYTES = 2_400_000
 COMPONENTS = (
     "fulfillment-service", "osac-operator", "osac-aap", "osac-installer",
     "bare-metal-fulfillment-operator", "osac-csi-driver", "osac-metering",
     "osac-ui", "proto", "tests/e2e",
 )
+
+
+def plan_file_count(names):
+    """Count current plan files, including both supported case aliases."""
+    names = set(names)
+    return sum(name in names for name in PLAN_NAMES)
+
+
+def enforce_review_budget(*, enhancement_count, plan_count, prompt_sizes=None):
+    """Apply fixed per-PR limits before fetching many documents or scoring."""
+    if (type(enhancement_count) is not int or enhancement_count < 0
+            or type(plan_count) is not int or plan_count < 0):
+        raise ValueError("Review budget counts must be nonnegative integers")
+
+    limits = []
+    if enhancement_count > MAX_AFFECTED_ENHANCEMENTS:
+        limits.append(
+            f"{enhancement_count} affected enhancements (maximum "
+            f"{MAX_AFFECTED_ENHANCEMENTS})"
+        )
+    if plan_count > MAX_PLAN_FILES:
+        limits.append(f"{plan_count} plan files (maximum {MAX_PLAN_FILES})")
+
+    if prompt_sizes is not None:
+        if any(type(size) is not int or size < 0 for size in prompt_sizes):
+            raise ValueError("Rendered prompt sizes must be nonnegative integers")
+        if any(size > MAX_PROMPT_BYTES for size in prompt_sizes):
+            limits.append(
+                f"a rendered prompt exceeds {MAX_PROMPT_BYTES} UTF-8 bytes"
+            )
+        total = sum(prompt_sizes)
+        if total > MAX_TOTAL_PROMPT_BYTES:
+            limits.append(
+                f"rendered prompts total {total} UTF-8 bytes (maximum "
+                f"{MAX_TOTAL_PROMPT_BYTES})"
+            )
+
+    if limits:
+        raise RuntimeError(
+            "Test-plan review budget exceeded: " + "; ".join(limits)
+            + ". Split into smaller PRs and retry."
+        )
 
 
 def write_json(path, data):
@@ -44,6 +94,24 @@ def affected_enhancements(files):
             if match and match[2] in DOCUMENT_NAMES:
                 affected.add(match[1])
     return sorted(affected)
+
+
+def plan_applicability(base, names, exists, files):
+    """Apply the same document policy before setup and before scoring."""
+    if not exists and any(
+        file.get("filename", "").startswith(base + "/")
+        and file.get("status") != "removed" for file in files
+    ):
+        raise RuntimeError("Changed enhancement is unavailable at the PR head")
+    if names.intersection(PLAN_NAMES):
+        return "Review"
+    plan_changed = any(
+        file.get(key) in {f"{base}/{name}" for name in PLAN_NAMES}
+        for file in files for key in ("filename", "previous_filename")
+    )
+    if names.intersection(DESIGN_NAMES) or (plan_changed and exists):
+        return "Error"
+    return "Not applicable"
 
 
 def validate_case_definitions(plan):
@@ -151,7 +219,8 @@ def classify_assessment(assessment):
                 or set(cap) != {"code", "caseIds", "source", "detail"}
                 or not isinstance(cap["code"], str)
                 or cap["code"] not in {
-                    "boundary_mismatch", "missing_required_case", "unusable_grounding"
+                    "boundary_mismatch", "missing_required_case", "unusable_grounding",
+                    "undisclosed_dependencies"
                 }
                 or not isinstance(cap["caseIds"], list) or not cap["caseIds"]
                 or any(not isinstance(case, str) or not case.strip() for case in cap["caseIds"])
@@ -161,7 +230,7 @@ def classify_assessment(assessment):
         codes.add(cap["code"])
     if not policy["groundingUsable"] and "unusable_grounding" not in codes:
         raise ValueError("Unusable grounding needs a named evidence cap")
-    if 0 in scores.values() or "boundary_mismatch" in codes:
+    if 0 in scores.values() or codes & {"boundary_mismatch", "undisclosed_dependencies"}:
         result["verdict"] = "Rework"
     elif (codes & {"missing_required_case", "unusable_grounding"}
             or (policy["integrationRequired"] and scores["grounding"] == 1)):
@@ -196,7 +265,7 @@ def grounding_context(root, documents):
     prefixes = "|".join(re.escape(x) for x in COMPONENTS)
     cited = {}
     for match in re.finditer(
-        rf"((?:{prefixes})/[A-Za-z0-9_./-]+)(?::([0-9]+)-([0-9]+))?",
+        rf"((?:{prefixes})/[A-Za-z0-9_./-]*[A-Za-z0-9_-])(?::([0-9]+)-([0-9]+))?",
         "\n".join(documents.values()),
     ):
         name, start, end = match.groups()

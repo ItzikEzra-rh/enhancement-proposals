@@ -20,7 +20,9 @@ from urllib.parse import quote
 from tp_hooks import TestPlanHooks
 from tp_model import complete
 from tp_gate import (PLAN_NAMES, DESIGN_NAMES, affected_enhancements,
-                     classify_assessment, git_sha, validate_case_definitions, write_json)
+                     classify_assessment, enforce_review_budget, git_sha,
+                     plan_applicability, plan_file_count,
+                     validate_case_definitions, write_json)
 
 
 REPO = os.environ.get("GITHUB_REPOSITORY", "osac-project/enhancement-proposals")
@@ -40,7 +42,9 @@ SCORE_OUTPUT_INSTRUCTIONS = (
     "actionability, and consistency. findings contains critical, important, "
     "and suggestions arrays of strings. policy contains integrationRequired "
     "and groundingUsable booleans, plus a caps array of objects containing "
-    "code, caseIds, source and detail. Follow the CI assessment mode rules."
+    "code, caseIds, source and detail. Required integration with undisclosed "
+    "real-versus-faked dependencies needs undisclosed_dependencies (Rework); "
+    "stub-only plus undisclosed also scores grounding zero. Follow CI assessment rules."
 )
 RESPONSE_OUTPUT_INSTRUCTIONS = (
     " For revision, return exactly one serialized JSON object with a "
@@ -169,6 +173,14 @@ def render_prompt(prompt, work_dir):
     )
 
 
+def prompt_size_bytes(request):
+    """Count both model input messages as their actual UTF-8 byte lengths."""
+    return sum(
+        len(request[key].encode("utf-8"))
+        for key in ("system_prompt", "prompt")
+    )
+
+
 def usage_summary(usage):
     input_tokens = usage.get("input_tokens", 0)
     output_tokens = usage.get("output_tokens", 0)
@@ -220,8 +232,8 @@ def apply_response_replacements(original, payload):
     return "".join(parts)
 
 
-def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
-               publish=True):
+def prepare_review_request(hooks, skill_name, ticket_key, ticket, work_dir):
+    """Render one complete request without sending it to the model."""
     ticket = {**ticket, "_skill_name": skill_name}
     work_dir = Path(work_dir)
     if work_dir.exists():
@@ -234,13 +246,36 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
         hooks._respond_prompt(patches=True) if skill_name == "test-plan-review"
         else hooks._score_prompt(assessment_mode=True)
     )
+    system_prompt = SYSTEM_PROMPT + (
+        SCORE_OUTPUT_INSTRUCTIONS if skill_name == "test-plan-score"
+        else RESPONSE_OUTPUT_INSTRUCTIONS
+    )
+    return {
+        "hooks": hooks,
+        "skill_name": skill_name,
+        "ticket_key": ticket_key,
+        "ticket": ticket,
+        "work_dir": work_dir,
+        "prompt": render_prompt(prompt, work_dir),
+        "system_prompt": system_prompt,
+        "max_tokens": 4096 if skill_name == "test-plan-score" else 12000,
+    }
+
+
+def run_prepared_review(request, *, model, publish=True):
+    """Send a previously rendered request and process its untrusted output."""
+    hooks = request["hooks"]
+    skill_name = request["skill_name"]
+    ticket_key = request["ticket_key"]
+    ticket = request["ticket"]
+    work_dir = request["work_dir"]
+    enforce_review_budget(
+        enhancement_count=1, plan_count=1,
+        prompt_sizes=[prompt_size_bytes(request)],
+    )
     output, usage = complete(
-        render_prompt(prompt, work_dir),
-        SYSTEM_PROMPT + (
-            SCORE_OUTPUT_INSTRUCTIONS if skill_name == "test-plan-score"
-            else RESPONSE_OUTPUT_INSTRUCTIONS
-        ),
-        max_tokens=4096 if skill_name == "test-plan-score" else 12000,
+        request["prompt"], request["system_prompt"],
+        max_tokens=request["max_tokens"],
         model=model,
     )
     summary = usage_summary(usage)
@@ -295,6 +330,27 @@ def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
     return {**verdict, "response_commit_sha": hooks.pr_data.get("response_commit_sha")}
 
 
+def run_review(hooks, skill_name, ticket_key, ticket, work_dir, *, model,
+               publish=True):
+    request = prepare_review_request(
+        hooks, skill_name, ticket_key, ticket, work_dir,
+    )
+    return run_prepared_review(request, model=model, publish=publish)
+
+
+def current_plan_count(head_repo, head_sha, slugs):
+    """Count every plan alias at the head, including unchanged plans."""
+    total = 0
+    for slug in slugs:
+        names = set()
+        for name in PLAN_NAMES:
+            path = f"enhancements/{slug}/{name}"
+            if fetch_pr_file(head_repo, head_sha, path) is not None:
+                names.add(name)
+        total += plan_file_count(names)
+    return total
+
+
 def respond_main():
     pr_number = os.environ.get("PR_NUMBER")
     resolved_head_sha = os.environ.get("PR_HEAD_SHA", "")
@@ -330,6 +386,16 @@ def respond_main():
     ):
         print("TestPlan.md was removed at the PR head — skipping")
         return
+
+    slugs = affected_enhancements(files)
+    enforce_review_budget(enhancement_count=len(slugs), plan_count=0)
+    head_repo = (pr.get("head", {}).get("repo") or {}).get("full_name", "")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", head_repo):
+        raise RuntimeError("PR head repository is unavailable")
+    enforce_review_budget(
+        enhancement_count=len(slugs),
+        plan_count=current_plan_count(head_repo, head_sha, slugs),
+    )
 
     pr_data = fetch_pr_documents(pr, ep_slug, testplan_path, head_sha)
     ticket = {
@@ -371,14 +437,14 @@ def respond_main():
             os.environ["PR_HEAD_SHA"] = revised_sha
             # Contents API returns the authoritative commit before the PR API
             # necessarily reflects it. Do not silently skip its required check.
-            for attempt in range(5):
+            for attempt in range(8):
                 current_sha = get_pull_request(pr_number).get("head", {}).get("sha", "")
                 if current_sha == revised_sha:
                     break
                 if current_sha != head_sha:
                     raise RuntimeError("PR head moved after the response commit")
-                if attempt < 4:
-                    time.sleep(1)
+                if attempt < 7:
+                    time.sleep(min(2 ** attempt, 10))
             else:
                 raise RuntimeError("Response commit is not yet visible in PR head; retry scoring")
             return score_main()
@@ -393,75 +459,118 @@ SCORE_REPORT = Path("test-plan-score/report.json")
 
 
 def score_pr(pr, files, *, skills_path, model, shadow):
-    """Evaluate every affected plan and retain failures alongside good results."""
+    """Preflight the complete plan batch, then score each renderable plan."""
     head_sha = pr["head"]["sha"]
     head_repo = (pr["head"].get("repo") or {}).get("full_name", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", head_repo):
         raise RuntimeError("PR head repository is unavailable")
     if len(files) != pr.get("changed_files", len(files)):
         raise RuntimeError("Changed-file listing is incomplete; cannot determine applicability")
-    rows = []
-    for slug in affected_enhancements(files):
+    slugs = affected_enhancements(files)
+    enforce_review_budget(enhancement_count=len(slugs), plan_count=0)
+
+    items = []
+    total_plans = 0
+    for slug in slugs:
         base = f"enhancements/{slug}"
+        design = None
+        for name in DESIGN_NAMES:
+            design = fetch_pr_file(head_repo, head_sha, f"{base}/{name}")
+            if design is not None:
+                break
+        prd = fetch_pr_file(head_repo, head_sha, f"{base}/prd.md")
+        plans = []
+        for name in PLAN_NAMES:
+            path = f"{base}/{name}"
+            document = fetch_pr_file(head_repo, head_sha, path)
+            if document is not None:
+                plans.append((path, document))
+        total_plans += len(plans)
+        enforce_review_budget(
+            enhancement_count=len(slugs), plan_count=total_plans,
+        )
+        names = {Path(path).name for path, _ in plans}
+        if design is not None:
+            names.add("design.md")
+        if prd is not None:
+            names.add("prd.md")
+        exists = bool(names) or enhancement_exists(head_repo, head_sha, base)
         try:
-            design = None
-            for name in DESIGN_NAMES:
-                design = fetch_pr_file(head_repo, head_sha, f"{base}/{name}")
-                if design is not None:
-                    break
-            prd = fetch_pr_file(head_repo, head_sha, f"{base}/prd.md")
-            plans = []
-            for name in PLAN_NAMES:
-                path = f"{base}/{name}"
-                document = fetch_pr_file(head_repo, head_sha, path)
-                if document is not None:
-                    plans.append((path, document))
-            if not plans:
-                if design is None and prd is None and any(
-                    file.get("filename", "").startswith(base + "/")
-                    and file.get("status") != "removed" for file in files
-                ):
-                    raise RuntimeError("Changed enhancement documents are unavailable at the PR head")
-                plan_changed = any(
-                    file.get(key) in {f"{base}/{name}" for name in PLAN_NAMES}
-                    for file in files for key in ("filename", "previous_filename")
-                )
-                if design is not None or (plan_changed and (
-                        prd is not None or enhancement_exists(head_repo, head_sha, base))):
-                    raise RuntimeError("A new/edited design or a removed required plan needs testplan.md")
-                rows.append({"path": base, "verdict": "Not applicable",
-                             "summary": "PRD-only work or an enhancement removed in full"})
-                continue
-            for path, plan in plans:
-                try:
-                    errors = validate_case_definitions(plan["content"])
-                    if errors:
-                        raise ValueError("Invalid test-case structure: " + "; ".join(errors))
-                    ticket = {
-                        "number": pr["number"], "title": pr.get("title", ""),
-                        "body": pr.get("body", ""), "headRefOid": head_sha,
-                        "_ep_slug": slug,
-                    }
-                    hooks = TestPlanHooks(
-                        repo=REPO, skills_path=skills_path, shadow=shadow,
-                        pr_data={
-                            "testplan_content": plan["content"], "testplan_path": path,
-                            "testplan_sha": plan["sha"], "head_sha": head_sha,
-                            "design_content": (design or {}).get("content", ""),
-                            "prd_content": (prd or {}).get("content", ""),
-                        },
-                    )
-                    verdict = run_review(
-                        hooks, "test-plan-score", f"TP-{pr['number']}", ticket,
-                        Path("test-plan-score") / slug / Path(path).stem,
-                        model=model, publish=False,
-                    )
-                    rows.append({**verdict, "path": path})
-                except Exception as exc:
-                    rows.append({"path": path, "verdict": "Error", "summary": str(exc)})
+            outcome = plan_applicability(base, names, exists, files)
         except Exception as exc:
-            rows.append({"path": base, "verdict": "Error", "summary": str(exc)})
-    return rows
+            items.append({"row": {"path": base, "verdict": "Error",
+                                   "summary": str(exc)}})
+            continue
+        if outcome == "Error":
+            items.append({"row": {"path": base, "verdict": "Error",
+                                   "summary": "Required test plan is missing"}})
+            continue
+        if outcome == "Not applicable":
+            items.append({"row": {"path": base, "verdict": outcome,
+                                   "summary": "PRD-only work or enhancement removed in full"}})
+            continue
+        for path, plan in plans:
+            items.append({
+                "path": path, "plan": plan, "slug": slug,
+                "design": design, "prd": prd,
+            })
+
+    # Render every scoring request before the first paid request so a large
+    # final plan cannot consume budget after earlier plans were already scored.
+    requests = []
+    for item in items:
+        if "plan" not in item:
+            continue
+        path = item["path"]
+        plan = item["plan"]
+        try:
+            errors = validate_case_definitions(plan["content"])
+            if errors:
+                raise ValueError("Invalid test-case structure: " + "; ".join(errors))
+            ticket = {
+                "number": pr["number"], "title": pr.get("title", ""),
+                "body": pr.get("body", ""), "headRefOid": head_sha,
+                "_ep_slug": item["slug"],
+            }
+            hooks = TestPlanHooks(
+                repo=REPO, skills_path=skills_path, shadow=shadow,
+                pr_data={
+                    "testplan_content": plan["content"], "testplan_path": path,
+                    "testplan_sha": plan["sha"], "head_sha": head_sha,
+                    "design_content": (item["design"] or {}).get("content", ""),
+                    "prd_content": (item["prd"] or {}).get("content", ""),
+                },
+            )
+            request = prepare_review_request(
+                hooks, "test-plan-score", f"TP-{pr['number']}", ticket,
+                Path("test-plan-score") / item["slug"] / Path(path).stem,
+            )
+            item["request"] = request
+            requests.append(request)
+        except Exception as exc:
+            if "Grounding context exceeds the review budget" in str(exc):
+                raise RuntimeError(
+                    f"Test-plan review budget exceeded while rendering {path}; "
+                    "split into smaller PRs or narrow the cited context."
+                ) from exc
+            item["row"] = {"path": path, "verdict": "Error", "summary": str(exc)}
+
+    enforce_review_budget(
+        enhancement_count=len(slugs), plan_count=total_plans,
+        prompt_sizes=[prompt_size_bytes(request) for request in requests],
+    )
+    for item in items:
+        request = item.get("request")
+        if request is None:
+            continue
+        try:
+            verdict = run_prepared_review(request, model=model, publish=False)
+            item["row"] = {**verdict, "path": item["path"]}
+        except Exception as exc:
+            item["row"] = {
+                "path": item["path"], "verdict": "Error", "summary": str(exc),
+            }
+    return [item["row"] for item in items]
 
 
 def score_main():

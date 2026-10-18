@@ -144,6 +144,14 @@ errors block the check. High scores do not override the rubric's evidence
 caps or boundary vetoes. The check summary and `test-plan-score-*` artifact
 retain individual verdicts and the skills/OSAC source commit SHAs.
 
+Each run is limited to four affected enhancements and four plan files,
+including unchanged plans and both filename aliases. Every rendered model
+prompt is limited to 1,200,000 UTF-8 bytes; a scoring batch is limited to
+2,400,000 bytes in total. The complete batch is checked before its first
+model request. Oversized changes must be split into smaller PRs or use
+narrower source excerpts. A response run may make one bounded revision
+request followed by a separately bounded scoring batch.
+
 After repairing a plan, push the change or ask an authorized collaborator to
 comment `/test-plan-score`. `/test-plan-respond` produces a revision; it does
 not approve it. Same-repository response commits are automatically re-scored.

@@ -10,6 +10,7 @@ Implements the hook interface for three modes:
 import json
 import os
 import re
+import string
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,35 @@ CONTEXT_FILES = [
     "skills/test-plan-score/references/scoring-rubric.md",
     "skills/test-plan-score/references/ci-assessment.md",
 ]
+
+
+_MARKDOWN_PUNCTUATION = frozenset(string.punctuation) - {"\\"}
+
+
+def markdown_literal(text, max_len=None):
+    """Escape untrusted text so Markdown renders its punctuation literally."""
+    text = str(text).replace("\\", "\\\\")
+    escaped = []
+    size = 0
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character == "\\":
+            # Original backslashes were doubled above; keep each pair intact
+            # if the output is truncated.
+            part = text[index:index + 2]
+            index += 2
+        elif character in _MARKDOWN_PUNCTUATION:
+            part = "\\" + character
+            index += 1
+        else:
+            part = character
+            index += 1
+        if max_len is not None and size + len(part) > max_len:
+            break
+        escaped.append(part)
+        size += len(part)
+    return "".join(escaped)
 
 
 class TestPlanHooks:
@@ -73,7 +103,7 @@ class TestPlanHooks:
             r'https?://(?!redhat\.atlassian\.net|github\.com)\S+',
             '[link removed]', text
         )
-        return text.strip()[:max_len]
+        return markdown_literal(text.strip(), max_len=max_len)
 
     @staticmethod
     def _write_step_summary(ticket_key, cost_summary):
@@ -335,6 +365,8 @@ class TestPlanHooks:
         for relpath in CONTEXT_FILES:
             src = Path(self.skills_path) / relpath
             references.append(f"### {src.name}\n{src.read_text()}")
+        if assessment_mode and not any("undisclosed_dependencies" in ref for ref in references):
+            raise RuntimeError("Scoring requires the dependency-disclosure veto in skill 0.5.0")
         prompt = (
             PROMPT_INJECTION_BOUNDARY
             + "Follow this authoritative scoring skill and its references. "
@@ -367,7 +399,8 @@ class TestPlanHooks:
             "disclosure rule. Do not demand a person, filed issue or passing run "
             "where the rubric permits proposed work and not-run status. "
             "A missing required case still caps readiness, and a demonstrated "
-            "wrong-tier or faked required boundary still triggers Rework. "
+            "wrong-tier/faked required boundary or undisclosed required-integration "
+            "dependencies still triggers Rework. "
             "Do not invent requirements, including source-absent priorities. "
             "Not-run planned tests do not imply a failed execution. "
             "Assess plan readiness separately from execution results."
@@ -585,7 +618,7 @@ class TestPlanHooks:
             if key in scores:
                 note = self._sanitize_text(
                     notes.get(key, "")
-                ).replace("|", "\\|").replace("\n", " ")
+                ).replace("\n", " ")
                 display = key.replace("_", " ").capitalize()
                 lines.append(
                     f"| {display} | {scores[key]}/2 | {note} |"

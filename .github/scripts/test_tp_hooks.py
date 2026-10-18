@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tp_hooks import SCORE_COMMENT_TAG, TestPlanHooks
+from tp_hooks import SCORE_COMMENT_TAG, TestPlanHooks, markdown_literal
 
 
 BOT = "github-actions[bot]"
@@ -209,6 +209,42 @@ class TestPlanCommentTests(unittest.TestCase):
 
 
 class ApplyScoreTests(unittest.TestCase):
+    def test_sanitize_text_escapes_markdown_without_losing_citations(self):
+        source = (
+            r"component/path/file.go:100-160 \* "
+            "[trusted](https://evil.example/path) "
+            "![image](https://evil.example/image.png) "
+            "[reference][target] [target]: https://github.com/example/repo "
+            "`code` # heading @alice <img src=x> &lt;script&gt;"
+        )
+
+        sanitized = TestPlanHooks._sanitize_text(source)
+
+        self.assertIn(r"component\/path\/file\.go\:100\-160", sanitized)
+        self.assertIn(r"\\\*", sanitized)
+        self.assertIn("trusted", sanitized)
+        self.assertNotIn("evil.example", sanitized)
+        self.assertNotIn("image", sanitized)
+        self.assertIn(r"\[reference\]\[target\]", sanitized)
+        self.assertIn(r"\[target\]\: https\:\/\/github\.com\/example\/repo", sanitized)
+        self.assertIn(r"\`code\` \# heading", sanitized)
+        self.assertIn(r"\&lt\;script\&gt\;", sanitized)
+        self.assertIn("alice", sanitized)
+        self.assertNotIn("@alice", sanitized)
+        self.assertNotIn("<img", sanitized)
+        self.assertEqual(
+            TestPlanHooks._sanitize_text("No changes requested"),
+            "No changes requested",
+        )
+        self.assertEqual(
+            TestPlanHooks._sanitize_text("*" * 20, max_len=10),
+            r"\*\*\*\*\*",
+        )
+        self.assertEqual(TestPlanHooks._sanitize_text("*", max_len=1), "")
+
+    def test_markdown_literal_escapes_backslashes_before_punctuation(self):
+        self.assertEqual(markdown_literal(r"\*"), r"\\\*")
+
     def test_apply_score_writes_marker_and_head_sha(self):
         hooks = TestPlanHooks(repo="test/repo", skills_path="/tmp", shadow=False)
         captured = {}

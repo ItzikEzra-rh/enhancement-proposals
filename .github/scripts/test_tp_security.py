@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 import tp_model
 import tp_review
-from tp_hooks import TestPlanHooks
+from tp_hooks import SCORE_COMMENT_TAG, TestPlanHooks
 from test_tp_gate import scoring_fixture
 
 
@@ -18,6 +18,60 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestPlanWorkflowSecurityTests(unittest.TestCase):
+    def test_score_comment_renders_untrusted_feedback_as_literal_markdown(self):
+        hooks = TestPlanHooks(
+            repo="osac-project/enhancement-proposals",
+            skills_path="/missing-skills",
+            shadow=False,
+        )
+        attack = (
+            "Source: component/path/file.go:100-160\n"
+            "[trusted](https://evil.example/path)\n"
+            "![pixel](https://evil.example/image.png)\n"
+            "[ref][target]\n"
+            "[target]: https://github.com/owner/repo\n"
+            "`\n## injected heading\n`"
+        )
+        verdict = {
+            "verdict": "Ready",
+            "scores": dict.fromkeys(
+                ("specificity", "grounding", "scope_fidelity",
+                 "actionability", "consistency"), 2,
+            ),
+            "criterionNotes": {},
+            "summary": "Evidence: component/path/file.go:100-160",
+            "feedback": attack,
+            "findings": {"critical": [], "important": [], "suggestions": []},
+        }
+        captured = {}
+
+        def fake_gh(args, check=False):
+            if args[:2] == ["pr", "comment"]:
+                body_file = Path(args[args.index("--body-file") + 1])
+                captured["body"] = body_file.read_text()
+            return ""
+
+        with patch.object(hooks, "_gh", side_effect=fake_gh):
+            hooks._apply_score(
+                "TP-42", verdict, "/tmp", ticket={"headRefOid": "abc12345"},
+            )
+
+        body = captured["body"]
+        self.assertTrue(body.startswith("## Test Plan Review: TP\\-42\n"))
+        self.assertIn(SCORE_COMMENT_TAG, body)
+        self.assertIn("**Score: 10/10** | **Verdict: Ready**", body)
+        self.assertGreaterEqual(
+            body.count(r"component\/path\/file\.go\:100\-160"), 2,
+        )
+        self.assertIn("trusted", body)
+        self.assertNotIn("evil.example", body)
+        self.assertNotIn("![pixel]", body)
+        self.assertIn(r"\[ref\]\[target\]", body)
+        self.assertIn(r"\[target\]\: https\:\/\/github\.com\/owner\/repo", body)
+        self.assertIn(r"\`", body)
+        self.assertIn(r"\#\# injected heading", body)
+        self.assertNotIn("\n## injected heading", body)
+
     def test_review_uses_default_branch_and_never_checks_out_pr_code(self):
         workflow = (REPO_ROOT / ".github/workflows/test-plan-review.yml").read_text()
 

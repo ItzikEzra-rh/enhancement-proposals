@@ -5,7 +5,6 @@ Uses only the Python standard library so start/finish do not depend on model
 packages or successful checkout of the skills and OSAC grounding sources.
 """
 
-import html
 import json
 import os
 import re
@@ -15,7 +14,11 @@ import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
-from tp_gate import PLAN_NAMES, DESIGN_NAMES, affected_enhancements, write_json
+from tp_gate import (
+    affected_enhancements, enforce_review_budget, plan_applicability,
+    plan_file_count, write_json,
+)
+from tp_hooks import markdown_literal
 
 CHECK_NAME = "Test Plan Score"
 STATE_PATH = Path(".test-plan-check.json")
@@ -37,9 +40,11 @@ def api(endpoint, *, method="GET", payload=None, optional=False):
     return json.loads(result.stdout)
 
 
-def text(value):
-    return (html.escape(str(value)).replace("@", "&#64;")
-            .replace("|", "\\|").replace("\n", " ").replace("\r", " "))
+def text(value, max_len=None):
+    literal = markdown_literal(
+        str(value).replace("\n", " ").replace("\r", " "), max_len=max_len,
+    )
+    return literal.replace(r"\@", "&#64;")
 
 
 def report_summary(report):
@@ -50,13 +55,13 @@ def report_summary(report):
         lines.extend(["| Plan | Score | Verdict | Feedback |",
                       "|------|-------|---------|----------|"])
         for row in rows:
-            feedback = text(row.get("feedback") or row.get("summary", ""))[:2000]
+            feedback = text(row.get("feedback") or row.get("summary", ""), max_len=2000)
             lines.append(f"| {text(row['path'])} | {text(row.get('total', '—'))} "
                          f"| {text(row['verdict'])} | {feedback} |")
     elif report.get("conclusion") == "success":
         lines.append("Not applicable: this PR changes no enhancement PRD, design or test plan.")
     if report.get("error"):
-        lines.append("Failure: " + text(report["error"])[:2000])
+        lines.append("Failure: " + text(report["error"], max_len=2000))
     for key in ("skills_sha", "osac_sha"):
         if key in report:
             lines.append(f"{key}: `{report[key]}`")
@@ -97,9 +102,14 @@ def prepare(repo, pr_number, head_sha):
             break
     if len(files) != expected:
         raise RuntimeError("Incomplete changed-file listing")
+    slugs = affected_enhancements(files)
+    # Bound the number of enhancement-content API requests before starting the
+    # per-directory preflight. Changed PRD/design files can have unchanged plans.
+    enforce_review_budget(enhancement_count=len(slugs), plan_count=0)
     rows = []
     needs_review = False
-    for slug in affected_enhancements(files):
+    total_plans = 0
+    for slug in slugs:
         base = f"enhancements/{slug}"
         entries = api(
             f"repos/{head_repo}/contents/{quote(base, safe='/')}?ref={head_sha}",
@@ -107,22 +117,19 @@ def prepare(repo, pr_number, head_sha):
         )
         if entries is not None and (not isinstance(entries, list) or len(entries) >= 1000):
             raise RuntimeError("Cannot obtain complete enhancement contents")
-        if entries is None and any(
-            file.get("filename", "").startswith(base + "/")
-            and file.get("status") != "removed" for file in files
-        ):
-            raise RuntimeError("Changed enhancement is unavailable at the PR head")
         names = {item["name"] for item in (entries or [])}
-        plan_changed = any(
-            file.get(key) in {f"{base}/{name}" for name in PLAN_NAMES}
-            for file in files for key in ("filename", "previous_filename")
+        total_plans += plan_file_count(names)
+        enforce_review_budget(
+            enhancement_count=len(slugs), plan_count=total_plans,
         )
-        if names.intersection(PLAN_NAMES):
+        outcome = plan_applicability(base, names, entries is not None, files)
+        if outcome == "Review":
             needs_review = True
-        elif names.intersection(DESIGN_NAMES) or (plan_changed and entries is not None):
-            rows.append({"path": base, "verdict": "Error", "summary": "Required test plan is missing"})
         else:
-            rows.append({"path": base, "verdict": "Not applicable", "summary": "PRD-only work or enhancement removed in full"})
+            rows.append({"path": base, "verdict": outcome, "summary": (
+                "Required test plan is missing" if outcome == "Error" else
+                "PRD-only work or enhancement removed in full"
+            )})
     report = {"head_sha": head_sha, "plans": rows, "conclusion": "failure"}
     if not needs_review and all(row["verdict"] == "Not applicable" for row in rows):
         report["conclusion"] = "success"

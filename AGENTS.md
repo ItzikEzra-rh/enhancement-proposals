@@ -82,3 +82,7 @@ Hooks:
   headings. Audit tables and evidence-matrix mentions do not define cases.
   Missing or duplicate definitions fail before a model request; semantic
   completeness still requires assessment against the PRD/design.
+- Keep each review within four affected enhancements and four plan files,
+  counting both aliases and unchanged plans. Rendered prompts are capped at
+  1,200,000 UTF-8 bytes each and 2,400,000 bytes per scoring batch before
+  any scoring request. Split oversized changes or narrow cited excerpts.
