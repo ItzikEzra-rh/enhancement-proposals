@@ -144,6 +144,26 @@ class CaseDefinitionTests(unittest.TestCase):
                 self.assertEqual(tp_gate.validate_case_definitions(
                     fence + '\nTC-FR4-02\n' + fence), [])
 
+    def test_fence_with_info_string_does_not_close_open_fence(self):
+        plan = (
+            '| E-I | TC-FR4-01 |\n'
+            '```\n'
+            '```bash\n'
+            '#### TC-FR4-01: Example in code\n'
+            '```\n'
+        )
+        self.assertEqual(tp_gate.validate_case_definitions(plan), [
+            'Referenced test cases have no definition heading: TC-FR4-01',
+        ])
+
+    def test_backtick_in_info_string_does_not_open_backtick_fence(self):
+        plan = (
+            '| E-I | TC-FR4-01 |\n'
+            '```bash`code\n'
+            '#### TC-FR4-01: Visible definition\n'
+        )
+        self.assertEqual(tp_gate.validate_case_definitions(plan), [])
+
     def test_duplicate_definitions_fail(self):
         self.assertEqual(tp_gate.validate_case_definitions(
             '#### TC-FR4-01: One\n#### TC-FR4-01: Two'), [

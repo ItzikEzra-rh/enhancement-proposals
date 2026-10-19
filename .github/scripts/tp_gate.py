@@ -119,12 +119,16 @@ def validate_case_definitions(plan):
     visible = []
     fence = None
     for line in re.sub(r"<!--.*?-->", "", plan, flags=re.DOTALL).splitlines():
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if marker:
-            token = marker[1]
+            token, suffix = marker.groups()
             if fence is None:
-                fence = token
-            elif token[0] == fence[0] and len(token) >= len(fence):
+                if token[0] != "`" or "`" not in suffix:
+                    fence = token
+                else:
+                    visible.append(line)
+            elif (token[0] == fence[0] and len(token) >= len(fence)
+                  and suffix.strip(" \t") == ""):
                 fence = None
             continue
         if fence is None:
