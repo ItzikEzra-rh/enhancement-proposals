@@ -193,6 +193,7 @@ def usage_summary(usage):
 USAGE_FIELDS = ("input_tokens", "output_tokens", "stop_reason")
 USAGE_VALUE_LIMIT = 64  # characters per retained string value
 USAGE_PAYLOAD_LIMIT = 4096  # serialized UTF-8 bytes for model-usage.json
+INVALID_STOP_REASON = "invalid"
 
 
 def bounded_usage(usage):
@@ -204,6 +205,10 @@ def bounded_usage(usage):
             if key == "stop_reason":
                 if isinstance(value, str):
                     bounded[key] = value[:USAGE_VALUE_LIMIT]
+                elif value is not None:
+                    # Fail closed: a present but non-string stop reason must
+                    # still trip the early-exit check, not pass as absent.
+                    bounded[key] = INVALID_STOP_REASON
             elif type(value) is int and value >= 0:
                 bounded[key] = value
     if len(json.dumps(bounded).encode("utf-8")) > USAGE_PAYLOAD_LIMIT:

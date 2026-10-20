@@ -504,7 +504,20 @@ class BoundedUsageTests(unittest.TestCase):
         self.assertEqual(tp_review.bounded_usage('not a dict'), {})
         self.assertEqual(tp_review.bounded_usage(None), {})
         self.assertEqual(tp_review.bounded_usage(
-            {'input_tokens': True, 'stop_reason': 7}), {})
+            {'input_tokens': True, 'stop_reason': 7, 'output_tokens': None}),
+            {'stop_reason': tp_review.INVALID_STOP_REASON})
+
+    def test_non_string_stop_reason_still_fails_closed_in_review(self):
+        with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory:
+            hooks = TestPlanHooks(repo='test/repo', skills_path=str(skills),
+                                  pr_data=dict(testplan_content='plan', design_content='design', prd_content='prd'))
+            with patch.object(tp_review, 'complete',
+                              return_value=('{}', {'stop_reason': 7})), patch.object(
+                tp_review, 'get_pull_request', return_value=PR,
+            ):
+                with self.assertRaisesRegex(RuntimeError, 'ended early'):
+                    tp_review.run_review(hooks, 'test-plan-score', 'TP-42',
+                                         {'number': 42, 'headRefOid': SHA}, directory, model='test')
 
     def test_long_string_values_are_truncated(self):
         usage = tp_review.bounded_usage({
