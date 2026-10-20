@@ -281,7 +281,8 @@ def run_prepared_review(request, *, model, publish=True):
     summary = usage_summary(usage)
     print(f"  [{skill_name}] {summary}")
     # Retain diagnostic data before format, truncation or stale-head rejection.
-    # These files never grant readiness or get posted as review feedback.
+    # These files never grant readiness or get posted as review feedback, and
+    # the raw response is never uploaded: it stays on the ephemeral runner.
     (work_dir / "model-output.txt").write_text(output)
     write_json(work_dir / "model-usage.json", usage)
     if usage.get("stop_reason") not in (None, "end_turn"):

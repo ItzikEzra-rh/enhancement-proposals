@@ -220,19 +220,18 @@ jobs:
             test-plan-score/report.json
             test-plan-score/**/verdict.json
             test-plan-score/**/assessment.json
-            test-plan-score/**/model-output.txt
             test-plan-score/**/model-usage.json
           if-no-files-found: warn
           retention-days: 14
 
+      # Raw model responses stay on the ephemeral runner disk; never upload
+      # them as downloadable artifacts. Upload usage metadata only.
       - name: Upload response diagnostics
-        if: always() && hashFiles('workdir-test-plan-review/model-output.txt') != ''
+        if: always() && hashFiles('workdir-test-plan-review/model-usage.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v4
         with:
           name: test-plan-diagnostics-pr${{ needs.resolve-pr.outputs.pr_number }}-run${{ github.run_id }}
-          path: |
-            workdir-test-plan-review/model-output.txt
-            workdir-test-plan-review/model-usage.json
+          path: workdir-test-plan-review/model-usage.json
           if-no-files-found: warn
           retention-days: 14
 
