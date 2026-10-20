@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from tp_hooks import TestPlanHooks
 from tp_model import complete
+from tp_redact import redact, redact_json
 from tp_gate import (PLAN_NAMES, DESIGN_NAMES, affected_enhancements,
                      classify_assessment, enforce_review_budget, git_sha,
                      plan_applicability, plan_file_count,
@@ -328,7 +329,10 @@ def run_prepared_review(request, *, model, publish=True):
         raise RuntimeError("PR head changed during scoring; rerun on the new commit")
 
     if skill_name == "test-plan-score":
-        assessment = parse_verdict(output)
+        # Redact untrusted model text at the parse boundary: everything
+        # downstream (verdict.json, report.json, comments, summaries)
+        # derives from this object.
+        assessment = redact_json(parse_verdict(output))
         write_json(work_dir / "assessment.json", assessment)
         verdict = classify_assessment(assessment)
         verdict["_cost_summary"] = summary
@@ -342,7 +346,9 @@ def run_prepared_review(request, *, model, publish=True):
     else:
         original = (work_dir / ".context" / "TestPlan.md").read_text()
         revision = apply_response_replacements(original, parse_verdict(output))
-        (work_dir / "testplan-output.md").write_text(revision)
+        # The revised plan is model-derived: commit, artifact and PR all
+        # read this file, so redact before it reaches disk.
+        (work_dir / "testplan-output.md").write_text(redact(revision))
         _, errors = hooks.validate_testplan_output(
             ticket_key=ticket_key, ticket=ticket, mode="resolve",
             work_dir=work_dir,
@@ -482,7 +488,7 @@ def respond_main():
                 raise RuntimeError("Response commit is not yet visible in PR head; retry scoring")
             return score_main()
     except Exception as exc:
-        print(f"  [{skill_name}] failed: {exc}", file=sys.stderr)
+        print(f"  [{skill_name}] failed: {redact(exc)}", file=sys.stderr)
         if IN_CI:
             sys.exit(1)
         raise
@@ -532,7 +538,7 @@ def score_pr(pr, files, *, skills_path, model, shadow):
             outcome = plan_applicability(base, names, exists, files)
         except Exception as exc:
             items.append({"row": {"path": base, "verdict": "Error",
-                                   "summary": str(exc)}})
+                                   "summary": redact(exc)}})
             continue
         if outcome == "Error":
             items.append({"row": {"path": base, "verdict": "Error",
@@ -586,7 +592,7 @@ def score_pr(pr, files, *, skills_path, model, shadow):
                     f"Test-plan review budget exceeded while rendering {path}; "
                     "split into smaller PRs or narrow the cited context."
                 ) from exc
-            item["row"] = {"path": path, "verdict": "Error", "summary": str(exc)}
+            item["row"] = {"path": path, "verdict": "Error", "summary": redact(exc)}
 
     enforce_review_budget(
         enhancement_count=len(slugs), plan_count=total_plans,
@@ -601,7 +607,7 @@ def score_pr(pr, files, *, skills_path, model, shadow):
             item["row"] = {**verdict, "path": item["path"]}
         except Exception as exc:
             item["row"] = {
-                "path": item["path"], "verdict": "Error", "summary": str(exc),
+                "path": item["path"], "verdict": "Error", "summary": redact(exc),
             }
     return [item["row"] for item in items]
 
@@ -651,10 +657,10 @@ def score_main():
                 print(f"Unable to post score feedback: {exc}", file=sys.stderr)
     except Exception as exc:
         report["conclusion"] = "failure"
-        report["error"] = str(exc)
-        print(f"Test plan scoring failed: {exc}", file=sys.stderr)
+        report["error"] = redact(exc)
+        print(f"Test plan scoring failed: {redact(exc)}", file=sys.stderr)
     finally:
-        write_json(SCORE_REPORT, report)
+        write_json(SCORE_REPORT, redact_json(report))
     return 0 if report["conclusion"] == "success" else 1
 
 

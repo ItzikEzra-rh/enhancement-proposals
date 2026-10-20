@@ -18,6 +18,7 @@ from tp_gate import (
     affected_enhancements, enforce_review_budget, plan_applicability,
     plan_file_count, write_json,
 )
+from tp_redact import redact
 from tp_hooks import markdown_literal
 
 CHECK_NAME = "Test Plan Score"
@@ -65,7 +66,9 @@ def report_summary(report):
     for key in ("skills_sha", "osac_sha"):
         if key in report:
             lines.append(f"{key}: `{report[key]}`")
-    return "\n".join(lines)[:60_000]
+    # Defense in depth: the report should already be redacted where model
+    # text was parsed; redact again at the publication boundary.
+    return redact("\n".join(lines))[:60_000]
 
 
 def start(repo, head_sha):

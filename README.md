@@ -144,6 +144,14 @@ errors block the check. High scores do not override the rubric's evidence
 caps or boundary vetoes. The check summary and `test-plan-score-*` artifact
 retain individual verdicts and the skills/OSAC source commit SHAs.
 
+Model output is untrusted data. Everything derived from it — verdict
+fields, plan revisions, error messages — passes a tested redaction filter
+(`.github/scripts/tp_redact.py`) that replaces credential-shaped
+substrings such as private keys, bearer and provider tokens, JWTs,
+secret-key assignments and email addresses with `<REDACTED>` before it is
+written to an artifact, printed, posted as a PR comment, or published as a
+check summary.
+
 Each run is limited to four affected enhancements and four plan files,
 including unchanged plans and both filename aliases. Every rendered model
 prompt is limited to 1,200,000 UTF-8 bytes; a scoring batch is limited to

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from comment_upsert import find_bot_comment, write_comment
 from tp_gate import SCORE_KEYS, grounding_context, validate_verdict
+from tp_redact import REDACTED, redact
 
 SCORE_COMMENT_TAG = "<!-- test-plan-review-bot:score -->"
 
@@ -97,7 +98,10 @@ class TestPlanHooks:
     def _sanitize_text(text, max_len=500):
         text = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', text)
         text = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', text)
-        text = re.sub(r'<[^>]+>', '', text)
+        # Strip untrusted HTML-like tags, but keep the redaction marker
+        # (tp_redact.REDACTED without its angle brackets) visible.
+        marker = REDACTED[1:-1]
+        text = re.sub(rf'<(?!{marker}>)[^>]*>', '', text)
         text = re.sub(r'@(\w+)', r'\1', text)
         text = re.sub(
             r'https?://(?!redhat\.atlassian\.net|github\.com)\S+',
@@ -130,6 +134,9 @@ class TestPlanHooks:
 
     def _upsert_score_comment(self, pr_number, body):
         """Update the canonical score comment or create it if absent."""
+        # Defense in depth: the verdict should already be redacted where
+        # model text was parsed; redact again before posting.
+        body = redact(body)
         if pr_number in self._score_comment_cache:
             existing = self._score_comment_cache.pop(pr_number)
         else:
