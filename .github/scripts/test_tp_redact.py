@@ -30,13 +30,31 @@ class RedactionPatternTests(unittest.TestCase):
 
     def test_authorization_and_bearer_values_are_redacted(self):
         self.assertEqual(
-            tp_redact.redact('Authorization: Bearer abcdef'),
+            tp_redact.redact('Authorization: Basic dXNlcjpwYXNz'),
+            'Authorization: Basic ' + tp_redact.REDACTED,
+        )
+        self.assertEqual(
+            tp_redact.redact('authorization: Bearer ' + 'A' * 24),
+            'authorization: Bearer ' + tp_redact.REDACTED,
+        )
+        self.assertEqual(
+            tp_redact.redact('Authorization: ' + 'K' * 40),
             'Authorization: ' + tp_redact.REDACTED,
         )
         self.assertEqual(
             tp_redact.redact('bearer ' + 'A' * 30 + ' accepted'),
             'bearer ' + tp_redact.REDACTED + ' accepted',
         )
+
+    def test_authorization_prose_survives(self):
+        for prose in (
+            '**Authorization:** tenant admin only',
+            'Authorization: requires Cloud Provider Admin role',
+            '| Authorization: | 403 for non-owners |',
+            'Authorization: Basic auth is not used here',
+        ):
+            with self.subTest(prose=prose):
+                self.assertEqual(tp_redact.redact(prose), prose)
 
     def test_provider_credentials_are_redacted(self):
         for prefix in ('ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_'):
@@ -113,6 +131,20 @@ class PlanTextSurvivesRedactionTests(unittest.TestCase):
     def test_redaction_is_idempotent(self):
         once = tp_redact.redact(f'password=hunter2 {GITHUB_TOKEN}')
         self.assertEqual(tp_redact.redact(once), once)
+
+    def test_keyed_rule_stops_at_the_first_value_token(self):
+        # Prose after a sensitive key loses at most its first word; the
+        # rest of the sentence stays readable.
+        self.assertEqual(
+            tp_redact.redact('secret: must be stored in a Secret'),
+            'secret: ' + tp_redact.REDACTED + ' be stored in a Secret',
+        )
+        self.assertEqual(
+            tp_redact.redact('token: required'),
+            'token: ' + tp_redact.REDACTED,
+        )
+        self.assertEqual(tp_redact.redact('password field is masked'),
+                         'password field is masked')
 
 
 class RedactJsonTests(unittest.TestCase):

@@ -22,9 +22,17 @@ _PEM_END = "-----END " + "[A-Z0-9 ]*PRIVATE KEY-----"
 _RULES = (
     # Private-key PEM blocks of any key type.
     (re.compile(_PEM_BEGIN + r".*?" + _PEM_END, re.DOTALL), REDACTED),
-    # Authorization header values, including anything after the colon.
-    (re.compile(r"(?i)(\bauthorization\b[\"']?\s*[:=]\s*[\"']?).+"),
-     r"\1" + REDACTED),
+    # Authorization header values, only when credential-shaped: an auth
+    # scheme (case-insensitive) followed by an opaque value, or a single
+    # opaque token of at least 20 characters. Prose after the key is
+    # left readable so review feedback like "Authorization: requires
+    # Cloud Provider Admin role" survives.
+    (re.compile(
+        r"(?i)(\bauthorization\b[\"']?\s*[:=]\s*[\"']?)"
+        r"(?:((?:bearer|basic|token|digest|negotiate|aws4-hmac-sha256)\s+)"
+        r"[A-Za-z0-9._~+/=-]{8,}"
+        r"|[A-Za-z0-9._~+/=-]{20,})"),
+     r"\1\2" + REDACTED),
     # Bearer tokens.
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{20,}"),
      r"\1" + REDACTED),
