@@ -87,7 +87,9 @@ class TestPlanHooks:
             ["gh"] + args, capture_output=True, text=True, timeout=120
         )
         if result.returncode != 0:
-            msg = f"gh {' '.join(args[:3])}... failed: {result.stderr[:200]}"
+            # gh stderr is provider text: redact before it is logged.
+            msg = (f"gh {' '.join(args[:3])}... failed: "
+                   f"{redact(result.stderr[:200])}")
             if check:
                 raise RuntimeError(msg)
             print(f"  gh error: {msg}", file=sys.stderr)
