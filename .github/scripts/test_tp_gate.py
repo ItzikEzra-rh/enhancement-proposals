@@ -484,13 +484,12 @@ class ScoringTests(unittest.TestCase):
                         tp_review.run_review(hooks, 'test-plan-score', 'TP-42',
                                              {'number': 42, 'headRefOid': SHA}, directory, model='test')
                 self.assertIn('exactly one serialized JSON object', model.call_args.args[1])
-                diagnostic = Path(directory) / 'model-output.txt'
                 if isinstance(output, Exception):
-                    self.assertFalse(diagnostic.exists())
+                    self.assertFalse((Path(directory) / 'model-usage.json').exists())
                 else:
-                    self.assertEqual(diagnostic.read_text(), 'not json')
                     self.assertEqual(json.loads((Path(directory) / 'model-usage.json').read_text()), {})
                     self.assertFalse((Path(directory) / 'verdict.json').exists())
+                self.assertFalse((Path(directory) / 'model-output.txt').exists())
 
 
 class CheckLifecycleTests(unittest.TestCase):
@@ -748,7 +747,8 @@ class ResponseReplacementTests(unittest.TestCase):
                                      model='test')
             publish.assert_not_called()
             self.assertFalse((Path(directory) / 'testplan-output.md').exists())
-            self.assertEqual((Path(directory) / 'model-output.txt').read_text(), output)
+            self.assertTrue((Path(directory) / 'model-usage.json').exists())
+            self.assertFalse((Path(directory) / 'model-output.txt').exists())
 
     def test_edits_preserve_frontmatter_and_unchanged_ledger(self):
         original = '---\nauthor: user\n---\nledger remains\n### FR4\nold result\n### FR5\n'

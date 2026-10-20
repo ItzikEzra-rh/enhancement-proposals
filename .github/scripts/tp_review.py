@@ -280,10 +280,9 @@ def run_prepared_review(request, *, model, publish=True):
     )
     summary = usage_summary(usage)
     print(f"  [{skill_name}] {summary}")
-    # Retain diagnostic data before format, truncation or stale-head rejection.
-    # These files never grant readiness or get posted as review feedback, and
-    # the raw response is never uploaded: it stays on the ephemeral runner.
-    (work_dir / "model-output.txt").write_text(output)
+    # Bounded usage metadata is retained for cost diagnostics. The raw
+    # model response is never written to disk or logs: it is parsed in
+    # memory, and only validated, bounded feedback is ever published.
     write_json(work_dir / "model-usage.json", usage)
     if usage.get("stop_reason") not in (None, "end_turn"):
         raise RuntimeError(
