@@ -492,6 +492,37 @@ class ScoringTests(unittest.TestCase):
                 self.assertFalse((Path(directory) / 'model-output.txt').exists())
 
 
+class BoundedUsageTests(unittest.TestCase):
+    def test_unknown_fields_and_unexpected_types_are_dropped(self):
+        self.assertEqual(tp_review.bounded_usage({
+            'input_tokens': 100, 'output_tokens': 50, 'stop_reason': 'end_turn',
+            'cache_read_input_tokens': 9999, 'model': 'secret-or-junk',
+            'nested': {'unexpected': 'provider data'}, 'input_tokens_str': '7',
+            'stop_reason_extra': True,
+        }), {'input_tokens': 100, 'output_tokens': 50,
+             'stop_reason': 'end_turn'})
+        self.assertEqual(tp_review.bounded_usage('not a dict'), {})
+        self.assertEqual(tp_review.bounded_usage(None), {})
+        self.assertEqual(tp_review.bounded_usage(
+            {'input_tokens': True, 'stop_reason': 7}), {})
+
+    def test_long_string_values_are_truncated(self):
+        usage = tp_review.bounded_usage({
+            'input_tokens': 1, 'stop_reason': 'x' * 500,
+        })
+        self.assertEqual(usage, {'input_tokens': 1,
+                                 'stop_reason': 'x' * tp_review.USAGE_VALUE_LIMIT})
+
+    def test_oversized_payload_is_reduced_then_emptied(self):
+        payload = {'input_tokens': 3, 'output_tokens': 4,
+                   'stop_reason': 'end_turn'}
+        with patch.object(tp_review, 'USAGE_PAYLOAD_LIMIT', 45):
+            self.assertEqual(tp_review.bounded_usage(payload),
+                             {'input_tokens': 3, 'output_tokens': 4})
+        with patch.object(tp_review, 'USAGE_PAYLOAD_LIMIT', 8):
+            self.assertEqual(tp_review.bounded_usage(payload), {})
+
+
 class CheckLifecycleTests(unittest.TestCase):
     def test_finish_requires_current_head_success_and_matching_report(self):
         for live_sha, status, report_sha, conclusion, expected in (

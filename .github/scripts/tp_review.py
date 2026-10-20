@@ -187,6 +187,33 @@ def usage_summary(usage):
     return f"**Tokens:** {input_tokens} in / {output_tokens} out"
 
 
+# Provider usage data is untrusted input. Retain only the fields consumed
+# here, bound every retained value, and cap the serialized payload before
+# model-usage.json is written or uploaded.
+USAGE_FIELDS = ("input_tokens", "output_tokens", "stop_reason")
+USAGE_VALUE_LIMIT = 64  # characters per retained string value
+USAGE_PAYLOAD_LIMIT = 4096  # serialized UTF-8 bytes for model-usage.json
+
+
+def bounded_usage(usage):
+    """Reduce untrusted provider usage data to bounded known fields."""
+    bounded = {}
+    if isinstance(usage, dict):
+        for key in USAGE_FIELDS:
+            value = usage.get(key)
+            if key == "stop_reason":
+                if isinstance(value, str):
+                    bounded[key] = value[:USAGE_VALUE_LIMIT]
+            elif type(value) is int and value >= 0:
+                bounded[key] = value
+    if len(json.dumps(bounded).encode("utf-8")) > USAGE_PAYLOAD_LIMIT:
+        bounded = {key: value for key, value in bounded.items()
+                   if type(value) is int}
+    if len(json.dumps(bounded).encode("utf-8")) > USAGE_PAYLOAD_LIMIT:
+        return {}
+    return bounded
+
+
 def parse_verdict(output):
     """Parse the JSON verdict, tolerating a surrounding Markdown code fence."""
     cleaned = output.strip()
@@ -278,6 +305,7 @@ def run_prepared_review(request, *, model, publish=True):
         max_tokens=request["max_tokens"],
         model=model,
     )
+    usage = bounded_usage(usage)
     summary = usage_summary(usage)
     print(f"  [{skill_name}] {summary}")
     # Bounded usage metadata is retained for cost diagnostics. The raw
