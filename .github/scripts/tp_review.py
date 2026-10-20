@@ -60,8 +60,10 @@ def gh(args, check=True):
         ["gh"] + args, capture_output=True, text=True, timeout=120
     )
     if result.returncode != 0:
-        # gh stderr is provider text: redact before it reaches a message.
-        msg = f"gh {' '.join(args[:3])}... failed: {redact(result.stderr[:300])}"
+        # Redact the complete stderr before truncating: a token cut at
+        # the boundary would otherwise escape the full-token patterns.
+        msg = (f"gh {' '.join(args[:3])}... failed: "
+               f"{redact(result.stderr)[:300]}")
         if not check and "HTTP 404" in result.stderr:
             return ""
         raise RuntimeError(msg)

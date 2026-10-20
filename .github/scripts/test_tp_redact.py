@@ -364,10 +364,14 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
         return stream, contextlib.redirect_stderr(stream)
 
     def test_review_exception_is_redacted_before_logging(self):
+        # IN_CI is read from GITHUB_ACTIONS when the module is imported;
+        # patch the constant so the CI exit contract is deterministic.
         error = RuntimeError(f'provider failed with {FAKE_GH_TOKEN}')
         files = [{'filename': 'enhancements/one/testplan.md',
                   'status': 'modified'}]
         with patch.dict(os.environ, {'PR_NUMBER': '42'}), patch.object(
+            tp_review, 'IN_CI', True,
+        ), patch.object(
             tp_review, 'get_pull_request', return_value=PR,
         ), patch.object(
             tp_review, 'get_changed_files', return_value=files,
@@ -381,15 +385,17 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
         ):
             stream, redirect = self.capture_stderr()
             with redirect:
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(SystemExit) as raised:
                     tp_review.respond_main()
+        self.assertEqual(raised.exception.code, 1)
         self.assertNotIn(FAKE_GH_TOKEN, stream.getvalue())
         self.assertIn(tp_redact.REDACTED, stream.getvalue())
 
     def test_score_exception_is_redacted_in_log_and_report(self):
         error = RuntimeError(f'scoring failed with {FAKE_GH_TOKEN}')
         with tempfile.TemporaryDirectory() as directory, patch.dict(
-            os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA},
+            os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA,
+                         'GITHUB_STEP_SUMMARY': ''},
         ), patch.object(tp_review, 'get_pull_request', side_effect=error):
             stream, redirect = self.capture_stderr()
             with redirect, working_directory(directory):
@@ -416,6 +422,35 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
         self.assertIn(tp_redact.REDACTED, stream.getvalue())
         self.assertNotIn(FAKE_GH_TOKEN, str(raised.exception))
         self.assertIn(tp_redact.REDACTED, str(raised.exception))
+
+    def test_truncation_happens_after_redaction(self):
+        # A token straddling the truncation boundary must not survive as
+        # a partial fragment: redact the complete stderr first.
+        fake_edge_token = 'gh' + 'p_' + 'e' * 36
+        fragments = [fake_edge_token[i:i + 8]
+                     for i in range(len(fake_edge_token) - 7)]
+        # The token is preceded by a space so the word boundary the
+        # token patterns anchor on exists; glued to word characters a
+        # token is deliberately not matched (that is what keeps paths
+        # and identifiers readable).
+        failure = Mock(returncode=1, stderr='a' * 291 + ' ' + fake_edge_token)
+        with patch.object(tp_review.subprocess, 'run', return_value=failure):
+            with self.assertRaises(RuntimeError) as raised:
+                tp_review.gh(['pr', 'view', '42'])
+        message = str(raised.exception)
+        self.assertIn('a' * 291, message)
+        for fragment in fragments:
+            self.assertNotIn(fragment, message)
+
+        failure = Mock(returncode=1, stderr='b' * 191 + ' ' + fake_edge_token)
+        hooks = TestPlanHooks(repo='test/repo', skills_path='unused')
+        with patch.object(tp_hooks.subprocess, 'run', return_value=failure):
+            with self.assertRaises(RuntimeError) as raised:
+                hooks._gh(['pr', 'view', '42'], check=True)
+        message = str(raised.exception)
+        self.assertIn('b' * 191, message)
+        for fragment in fragments:
+            self.assertNotIn(fragment, message)
 
 
 if __name__ == '__main__':

@@ -87,9 +87,11 @@ class TestPlanHooks:
             ["gh"] + args, capture_output=True, text=True, timeout=120
         )
         if result.returncode != 0:
-            # gh stderr is provider text: redact before it is logged.
+            # Redact the complete stderr before truncating: a token cut
+            # at the boundary would otherwise escape the full-token
+            # patterns.
             msg = (f"gh {' '.join(args[:3])}... failed: "
-                   f"{redact(result.stderr[:200])}")
+                   f"{redact(result.stderr)[:200]}")
             if check:
                 raise RuntimeError(msg)
             print(f"  gh error: {msg}", file=sys.stderr)
