@@ -7,9 +7,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import tp_check
+import tp_hooks
 import tp_redact
 import tp_review
-from test_tp_gate import PR, SHA, assessment, scoring_fixture
+from test_tp_gate import (PR, SHA, assessment, scoring_fixture,
+                          working_directory)
 from tp_hooks import TestPlanHooks
 
 GITHUB_TOKEN = 'ghp_' + 'x' * 36
@@ -241,6 +243,28 @@ class RedactionEndToEndTests(unittest.TestCase):
         self.assertIn('new evidence citing', revision)
         self.assertNotIn(token, revision)
         self.assertIn(tp_redact.REDACTED, revision)
+
+    def test_generate_pr_gets_a_redacted_plan(self):
+        token = 'ghp_' + 'g' * 36
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'testplan-output.md'
+            output.write_text('# Test Plan\n\nEvidence uses ' + token + '\n')
+            hooks = TestPlanHooks(repo='test/repo', skills_path='unused',
+                                  shadow=False)
+            with patch.object(
+                hooks, '_gh', return_value='',
+            ), patch.object(
+                tp_hooks.subprocess, 'run',
+            ) as run, working_directory(directory):
+                hooks.apply_labels('TP-42', {}, 'generate', directory,
+                                   ticket={'_ep_slug': 'osac-1',
+                                           'title': 'Test title'})
+            self.assertTrue(run.called)
+            dest = Path(directory) / 'enhancements/osac-1/TestPlan.md'
+            content = dest.read_text()
+            self.assertNotIn(token, content)
+            self.assertIn(tp_redact.REDACTED, content)
+            self.assertIn('# Test Plan', content)
 
     def test_model_secrets_never_reach_artifacts_comments_or_check_summary(self):
         value = assessment()

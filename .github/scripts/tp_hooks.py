@@ -537,8 +537,9 @@ class TestPlanHooks:
         dest = Path(f"enhancements/{ep_slug}/TestPlan.md")
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-        import shutil
-        shutil.copy2(output, dest)
+        # The generated plan is entirely model output: redact it before
+        # it is committed, pushed and published as a PR.
+        dest.write_text(redact(output.read_text()))
 
         subprocess.run(
             ["git", "checkout", "-b", branch], check=True,
