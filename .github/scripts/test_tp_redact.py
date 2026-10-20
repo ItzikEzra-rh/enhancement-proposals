@@ -106,6 +106,26 @@ class RedactionPatternTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(tp_redact.redact(source), expected)
 
+    def test_identifier_prefixed_keys_are_redacted(self):
+        for source, expected in (
+            ('ACCESS_TOKEN=abc123', 'ACCESS_TOKEN=' + tp_redact.REDACTED),
+            ('access_token: val-1', 'access_token: ' + tp_redact.REDACTED),
+            ('refresh_token: r-tok-987', 'refresh_token: ' + tp_redact.REDACTED),
+            ('GITHUB_TOKEN=' + GITHUB_TOKEN,
+             'GITHUB_TOKEN=' + tp_redact.REDACTED),
+            ('db_password=hunter2', 'db_password=' + tp_redact.REDACTED),
+            ('DB_PASSWORD=hunter2', 'DB_PASSWORD=' + tp_redact.REDACTED),
+            ('aws_session_token=XYZabc',
+             'aws_session_token=' + tp_redact.REDACTED),
+            ('authToken: abc123xyz', 'authToken: ' + tp_redact.REDACTED),
+            ('"access_token": "val-1"',
+             '"access_token": "' + tp_redact.REDACTED + '"'),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(tp_redact.redact(source), expected)
+        self.assertEqual(tp_redact.redact('the access token is rotated'),
+                         'the access token is rotated')
+
     def test_email_addresses_are_redacted(self):
         redacted = tp_redact.redact('contact user.name+tag@example.com now')
         self.assertNotIn('example.com', redacted)
@@ -165,6 +185,63 @@ class RedactJsonTests(unittest.TestCase):
 
 
 class RedactionEndToEndTests(unittest.TestCase):
+    def test_report_summary_redacts_raw_values_before_escaping(self):
+        token = 'ghp_' + 'y' * 36
+        report = {
+            'head_sha': 'a' * 40,
+            'plans': [{'path': 'enhancements/one/testplan.md', 'total': 8,
+                       'verdict': 'Revise',
+                       'feedback': f'leaked {token} by admin@example.com'}],
+            'error': f'mail user@example.com with {token}',
+        }
+        summary = tp_check.report_summary(report)
+        self.assertNotIn(token, summary)
+        self.assertNotIn('example.com', summary)
+        self.assertNotIn('&#64;', summary)
+        self.assertNotIn('@', summary)
+        self.assertIn('REDACTED', summary)
+
+    def test_replacement_values_are_redacted_and_anchors_still_apply(self):
+        token = 'ghp_' + 'z' * 36
+        original = 'front matter\n### FR4\nold result\n### FR5\n'
+        revised = tp_review.apply_response_replacements(original, {
+            'replacements': [
+                {'old': 'old result', 'new': f'specific result citing {token}'},
+                {'old': '### FR5\n', 'new': 'additional case\n### FR5\n'},
+            ],
+        })
+        self.assertNotIn(token, revised)
+        self.assertIn(tp_redact.REDACTED, revised)
+        self.assertIn('specific result citing', revised)
+        self.assertIn('additional case\n### FR5\n', revised)
+        self.assertIn('front matter', revised)
+
+    def test_respond_preserves_author_text_and_redacts_model_edits(self):
+        token = 'ghp_' + 'z' * 36
+        output = json.dumps({'replacements': [
+            {'old': 'old result', 'new': f'new evidence citing {token}'},
+        ]})
+        plan = ('owner@example.com\n' + 'planning context line\n' * 40
+                + '### FR4\nold result\n')
+        hooks = TestPlanHooks(repo='test/repo', skills_path='unused',
+                              pr_data={'testplan_content': plan})
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            hooks, '_gh', return_value='',
+        ), patch.object(
+            tp_review, 'complete', return_value=(output, {}),
+        ), patch.object(
+            tp_review, 'get_pull_request', return_value=PR,
+        ), patch.object(hooks, 'apply_labels') as publish:
+            tp_review.run_review(hooks, 'test-plan-review', 'TP-42',
+                                 {'number': 42, 'headRefOid': SHA}, directory,
+                                 model='test')
+            publish.assert_called_once()
+            revision = (Path(directory) / 'testplan-output.md').read_text()
+        self.assertIn('owner@example.com', revision)
+        self.assertIn('new evidence citing', revision)
+        self.assertNotIn(token, revision)
+        self.assertIn(tp_redact.REDACTED, revision)
+
     def test_model_secrets_never_reach_artifacts_comments_or_check_summary(self):
         value = assessment()
         value['summary'] = f'Admin token {GITHUB_TOKEN} in evidence'

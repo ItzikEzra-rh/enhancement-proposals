@@ -50,12 +50,17 @@ _RULES = (
     (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}"
                 r"\.[A-Za-z0-9_-]*"), REDACTED),
     # Sensitive key/value assignments in YAML, JSON, env or kubeconfig
-    # syntax. Only the value is replaced; the key stays readable.
+    # syntax. An optional identifier prefix covers keys like ACCESS_TOKEN,
+    # db_password or authToken; the keyword must remain the final word
+    # before the separator, so prose like "the access token is rotated"
+    # or "password field is masked" does not match. Only the value is
+    # replaced; the key stays readable.
     (re.compile(
-        r"(?i)\b(password|passwd|secret|token|api[_-]?key|client[_-]secret|"
-        r"aws[_-]secret[_-]access[_-]key|client[_-]key[_-]data|"
-        r"client[_-]certificate[_-]data|certificate[_-]authority[_-]data)\b"
-        r"([\"']?\s*[:=]\s*[\"']?)[^\s,;\"'}]+"),
+        r"(?i)\b([A-Za-z0-9_-]*(?:password|passwd|secret|token|api[_-]?key|"
+        r"client[_-]secret|aws[_-]secret[_-]access[_-]key|"
+        r"client[_-]key[_-]data|client[_-]certificate[_-]data|"
+        r"certificate[_-]authority[_-]data))"
+        r"\b([\"']?\s*[:=]\s*[\"']?)[^\s,;\"'}]+"),
      r"\1\2" + REDACTED),
     # Email addresses.
     (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),

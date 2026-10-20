@@ -42,9 +42,10 @@ def api(endpoint, *, method="GET", payload=None, optional=False):
 
 
 def text(value, max_len=None):
-    literal = markdown_literal(
-        str(value).replace("\n", " ").replace("\r", " "), max_len=max_len,
-    )
+    # Redact the raw value before escaping: markdown_literal escapes the
+    # punctuation (\@, \_, \.) that the redaction patterns must match.
+    raw = redact(str(value).replace("\n", " ").replace("\r", " "))
+    literal = markdown_literal(raw, max_len=max_len)
     return literal.replace(r"\@", "&#64;")
 
 

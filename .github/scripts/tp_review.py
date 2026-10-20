@@ -237,7 +237,13 @@ def parse_verdict(output):
 
 
 def apply_response_replacements(original, payload):
-    """Apply unique, disjoint edits to the original document or reject all."""
+    """Apply unique, disjoint edits to the original document or reject all.
+
+    Model-supplied replacement text is redacted before it is applied, so
+    credentials cannot reach the revised plan. Anchor text is copied from
+    the original document and is never altered, and author text that no
+    edit touches stays byte-identical.
+    """
     if (not isinstance(payload, dict) or set(payload) != {"replacements"}
             or not isinstance(payload["replacements"], list)
             or not 1 <= len(payload["replacements"]) <= 32):
@@ -252,7 +258,7 @@ def apply_response_replacements(original, payload):
         if original.count(item["old"]) != 1:
             raise ValueError("Replacement old text must match exactly once")
         start = original.index(item["old"])
-        edits.append((start, start + len(item["old"]), item["new"]))
+        edits.append((start, start + len(item["old"]), redact(item["new"])))
     edits.sort()
     parts = []
     previous_end = 0
@@ -345,10 +351,11 @@ def run_prepared_review(request, *, model, publish=True):
             raise RuntimeError("Invalid score output: " + "; ".join(errors))
     else:
         original = (work_dir / ".context" / "TestPlan.md").read_text()
+        # Each model-supplied replacement is redacted inside
+        # apply_response_replacements; author text that no edit touches
+        # stays byte-identical in the committed revision.
         revision = apply_response_replacements(original, parse_verdict(output))
-        # The revised plan is model-derived: commit, artifact and PR all
-        # read this file, so redact before it reaches disk.
-        (work_dir / "testplan-output.md").write_text(redact(revision))
+        (work_dir / "testplan-output.md").write_text(revision)
         _, errors = hooks.validate_testplan_output(
             ticket_key=ticket_key, ticket=ticket, mode="resolve",
             work_dir=work_dir,
