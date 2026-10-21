@@ -218,6 +218,11 @@ class InternalHostRedactionTests(unittest.TestCase):
                 self.assertEqual(
                     tp_redact.redact(f'connect to {address} now'),
                     'connect to ' + tp_redact.HOST_REDACTED + ' now')
+        # Decision: a private address with a hyphen tag is still redacted;
+        # it is far more likely a host reference than a version string.
+        self.assertEqual(tp_redact.redact('builds on 10.0.0.5-rc1 today'),
+                         'builds on ' + tp_redact.HOST_REDACTED
+                         + '-rc1 today')
 
     def test_internal_hostnames_are_redacted(self):
         for host in ('fulfillment-service.osac.svc',
@@ -231,6 +236,22 @@ class InternalHostRedactionTests(unittest.TestCase):
         self.assertEqual(
             tp_redact.redact('at fulfillment-service.osac.svc:8443 ready'),
             'at ' + tp_redact.HOST_REDACTED + ':8443 ready')
+        # A sentence-final dot and a path separator still end a hostname.
+        self.assertEqual(
+            tp_redact.redact('Call fulfillment-service.osac.svc.'),
+            'Call ' + tp_redact.HOST_REDACTED + '.')
+        self.assertEqual(
+            tp_redact.redact('http://api.ci.local/healthz'),
+            'http://' + tp_redact.HOST_REDACTED + '/healthz')
+
+    def test_suffix_like_file_and_module_names_survive(self):
+        unchanged = (
+            'Edit settings.local.json and config.local.yaml, run '
+            'python -m pkg.internal.mod, inspect foo.svc.go, read '
+            'docs/internal/x.md and '
+            'osac-operator/internal/controller/foo.go.'
+        )
+        self.assertEqual(tp_redact.redact(unchanged), unchanged)
 
     def test_public_hosts_and_bare_names_survive(self):
         unchanged = (

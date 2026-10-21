@@ -118,6 +118,9 @@ _RULES = (
                 + re.escape(JWT_SEGMENT_PREFIX) + r"[A-Za-z0-9_-]{10,}"
                 r"\.[A-Za-z0-9_-]*"), REDACTED),
     # Internal IPv4 addresses: RFC1918 private, loopback and link-local.
+    # A hyphen suffix (10.0.0.5-rc1) is still redacted: a private address
+    # with a tag is far more likely a real host reference than a version
+    # string, and over-redacting that shape is harmless.
     (re.compile(
         r"\b(?:10(?:\.\d{1,3}){3}"
         r"|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}"
@@ -128,11 +131,16 @@ _RULES = (
     # link-local addresses (fe80::/10).
     (re.compile(r"\b(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):"
                 r"(?:[0-9a-f]{0,4}:){1,6}[0-9a-f]{0,4}\b"), HOST_REDACTED),
-    # Hostnames under internal-only suffixes. Public hostnames, URLs,
-    # public IP addresses and bare service names stay readable.
+    # Hostnames under internal-only suffixes. The suffix must end the
+    # hostname: only end-of-string, a port, a path separator, whitespace,
+    # closing punctuation, or a sentence-final dot may follow, so names
+    # like settings.local.json or module paths like pkg.internal.mod stay
+    # readable. Public hostnames, URLs, public IP addresses and bare
+    # service names stay readable. (\x22/\x27 are the quote characters.)
     (re.compile(
         r"\b[A-Za-z0-9.-]+\.(?:svc|cluster\.local|internal|local|lan|corp|"
-        r"intranet|home\.arpa)\b"), HOST_REDACTED),
+        r"intranet|home\.arpa)"
+        r"(?=$|[:/\s,;)\]>\x22\x27]|\.(?!\w))"), HOST_REDACTED),
     # US Social Security Numbers, excluding the invalid area/group/serial
     # combinations. Any 3-2-4 digit group passing those exclusions is
     # redacted even if it could be a phone number: over-redacting that
