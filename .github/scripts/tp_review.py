@@ -359,6 +359,10 @@ def run_prepared_review(request, *, model, publish=True):
         # stays byte-identical in the committed revision.
         revision = apply_response_replacements(original, parse_verdict(output))
         (work_dir / "testplan-output.md").write_text(revision)
+        # The fork-response artifact is published outside the repository,
+        # so it carries the fully redacted revision.
+        (work_dir / "testplan-output.redacted.md").write_text(
+            redact(revision))
         _, errors = hooks.validate_testplan_output(
             ticket_key=ticket_key, ticket=ticket, mode="resolve",
             work_dir=work_dir,

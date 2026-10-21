@@ -235,17 +235,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # Only the fully redacted revision is uploaded as an artifact; the
+      # file used for same-repository response commits is never uploaded.
       - name: Upload TestPlan response for fork PR
         id: upload-fork-response
         if: >-
           always() && needs.resolve-pr.outputs.mode == 'respond'
           && needs.resolve-pr.outputs.head_repo != github.repository
           && (vars.TP_SHADOW || 'true') == 'false'
-          && hashFiles('workdir-test-plan-review/testplan-output.md') != ''
+          && hashFiles('workdir-test-plan-review/testplan-output.redacted.md') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v4
         with:
           name: test-plan-response-pr${{ needs.resolve-pr.outputs.pr_number }}-run${{ github.run_id }}
-          path: workdir-test-plan-review/testplan-output.md
+          path: workdir-test-plan-review/testplan-output.redacted.md
           retention-days: 7
 
       - name: Link fork response on the PR

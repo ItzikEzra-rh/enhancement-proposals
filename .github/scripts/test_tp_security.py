@@ -86,6 +86,19 @@ class TestPlanWorkflowSecurityTests(unittest.TestCase):
         self.assertIn("Authenticate to GCP with Workload Identity Federation", workflow)
         self.assertIn("vars.GCP_WORKLOAD_IDENTITY_PROVIDER", workflow)
 
+    def test_fork_response_artifact_is_fully_redacted(self):
+        workflow = (REPO_ROOT / ".github/workflows/test-plan-review.yml").read_text()
+        # Only the redacted revision is uploaded; the file used for
+        # same-repository response commits is never an artifact path.
+        self.assertIn(
+            "path: workdir-test-plan-review/testplan-output.redacted.md",
+            workflow)
+        self.assertIn(
+            "hashFiles('workdir-test-plan-review/testplan-output.redacted.md')",
+            workflow)
+        self.assertNotIn(
+            "workdir-test-plan-review/testplan-output.md\n", workflow)
+
     def test_slash_acknowledgement_has_pr_permission_and_cannot_block_scoring(self):
         workflow = (REPO_ROOT / ".github/workflows/test-plan-review.yml").read_text()
         resolver = workflow.split("  resolve-pr:", 1)[1].split("  review:", 1)[0]

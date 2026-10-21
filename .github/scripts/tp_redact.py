@@ -16,6 +16,11 @@ already public in the PR; on top of that, emails, identifiers, SSNs,
 card numbers, credentials, session values and internal hosts are
 redacted at every sink.
 
+Revised plans: a revision committed to a same-repository PR branch
+keeps the author's own untouched text byte-identical (only
+model-supplied edits are redacted); the revised-plan artifact uploaded
+for fork PRs is fully redacted.
+
 Internal network identifiers are redacted (private, loopback and
 link-local IP addresses, and hostnames under internal-only suffixes
 such as .svc or .cluster.local). Public hostnames, URLs, public IP

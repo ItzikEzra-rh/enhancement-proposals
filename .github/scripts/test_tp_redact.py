@@ -377,10 +377,18 @@ class RedactionEndToEndTests(unittest.TestCase):
                                  model='test')
             publish.assert_called_once()
             revision = (Path(directory) / 'testplan-output.md').read_text()
+            artifact = (Path(directory)
+                        / 'testplan-output.redacted.md').read_text()
+        # The committed revision keeps the author's untouched text.
         self.assertIn('owner@example.com', revision)
         self.assertIn('new evidence citing', revision)
         self.assertNotIn(fixture_shaped('github', 'z'), revision)
         self.assertIn(tp_redact.REDACTED, revision)
+        # The uploaded artifact is fully redacted.
+        self.assertNotIn('owner@example.com', artifact)
+        self.assertNotIn(fixture_shaped('github', 'z'), artifact)
+        self.assertIn(tp_redact.REDACTED, artifact)
+        self.assertIn('new evidence citing', artifact)
 
     def test_generate_pr_gets_a_redacted_plan(self):
         with tempfile.TemporaryDirectory() as directory:

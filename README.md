@@ -151,7 +151,9 @@ printed, posted as a PR comment, or published as a check summary. The
 filter replaces private keys, bearer and provider tokens, JWTs,
 secret-key assignments, email addresses, US SSNs, Luhn-valid payment
 card numbers, session and cookie values, and internal IP addresses or
-hostnames with `<REDACTED>` / `<REDACTED-HOST>` markers. There is no
+hostnames with `<REDACTED>` / `<REDACTED-HOST>` markers. Committed
+revisions keep the author's own untouched text; the revised-plan
+artifact uploaded for fork PRs is fully redacted. There is no
 reliable text shape for customer data, so it is handled structurally
 instead: the model's only inputs are the PR's own public repository
 files plus the public osac-ai-skills and OSAC checkouts, so its output
