@@ -131,14 +131,16 @@ _RULES = (
     # link-local addresses (fe80::/10).
     (re.compile(r"\b(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):"
                 r"(?:[0-9a-f]{0,4}:){1,6}[0-9a-f]{0,4}\b"), HOST_REDACTED),
-    # Hostnames under internal-only suffixes. The suffix must end the
+    # Hostnames under internal-only suffixes, including underscore
+    # labels (my_db.internal, svc_a.ns.svc). The suffix must end the
     # hostname: only end-of-string, a port, a path separator, whitespace,
     # closing punctuation, or a sentence-final dot may follow, so names
-    # like settings.local.json or module paths like pkg.internal.mod stay
-    # readable. Public hostnames, URLs, public IP addresses and bare
-    # service names stay readable. (\x22/\x27 are the quote characters.)
+    # like settings.local.json, pkg.internal.mod or module paths like
+    # tp_redact.local_rules stay readable. Public hostnames, URLs,
+    # public IP addresses and bare service names stay readable.
+    # (\x22/\x27 are the quote characters.)
     (re.compile(
-        r"\b[A-Za-z0-9.-]+\.(?:svc|cluster\.local|internal|local|lan|corp|"
+        r"\b[A-Za-z0-9._-]+\.(?:svc|cluster\.local|internal|local|lan|corp|"
         r"intranet|home\.arpa)"
         r"(?=$|[:/\s,;)\]>\x22\x27]|\.(?!\w))"), HOST_REDACTED),
     # US Social Security Numbers, excluding the invalid area/group/serial

@@ -228,11 +228,15 @@ class InternalHostRedactionTests(unittest.TestCase):
         for host in ('fulfillment-service.osac.svc',
                      'keycloak.keycloak.svc.cluster.local',
                      'db.internal', 'printer.lan', 'portal.corp',
-                     'wiki.intranet', 'raspi.home.arpa', 'host.local'):
+                     'wiki.intranet', 'raspi.home.arpa', 'host.local',
+                     'my_db.internal'):
             with self.subTest(host=host):
                 self.assertEqual(
                     tp_redact.redact(f'calls {host} internally'),
                     'calls ' + tp_redact.HOST_REDACTED + ' internally')
+        # Underscore labels are replaced in full, with no leftover prefix.
+        self.assertEqual(tp_redact.redact('at svc_a.ns.svc:8443 ready'),
+                         'at ' + tp_redact.HOST_REDACTED + ':8443 ready')
         self.assertEqual(
             tp_redact.redact('at fulfillment-service.osac.svc:8443 ready'),
             'at ' + tp_redact.HOST_REDACTED + ':8443 ready')
@@ -249,7 +253,8 @@ class InternalHostRedactionTests(unittest.TestCase):
             'Edit settings.local.json and config.local.yaml, run '
             'python -m pkg.internal.mod, inspect foo.svc.go, read '
             'docs/internal/x.md and '
-            'osac-operator/internal/controller/foo.go.'
+            'osac-operator/internal/controller/foo.go. '
+            'Import tp_redact.local_rules and my_pkg.internal.mod.'
         )
         self.assertEqual(tp_redact.redact(unchanged), unchanged)
 
