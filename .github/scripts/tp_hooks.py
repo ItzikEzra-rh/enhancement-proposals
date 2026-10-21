@@ -102,10 +102,10 @@ class TestPlanHooks:
     def _sanitize_text(text, max_len=500):
         text = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', text)
         text = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', text)
-        # Strip untrusted HTML-like tags, but keep the redaction marker
-        # (tp_redact.REDACTED without its angle brackets) visible.
-        marker = REDACTED[1:-1]
-        text = re.sub(rf'<(?!{marker}>)[^>]*>', '', text)
+        # Strip untrusted HTML-like tags, but keep the redaction markers
+        # (REDACTED and REDACTED-HOST without their angle brackets)
+        # visible.
+        text = re.sub(rf'<(?!{REDACTED[1:-1]})[^>]*>', '', text)
         text = re.sub(r'@(\w+)', r'\1', text)
         text = re.sub(
             r'https?://(?!redhat\.atlassian\.net|github\.com)\S+',

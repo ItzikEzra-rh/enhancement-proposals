@@ -1,30 +1,50 @@
-"""Redact credential-shaped substrings before untrusted text is published.
+"""Redact credential- and PII-shaped substrings before untrusted text
+is published.
 
 Model responses and provider metadata are untrusted data. Everything
 derived from them — verdict fields, plan revisions, error messages — is
 redacted before it is written to an artifact, printed, posted as a PR
 comment, or published as a check summary. Redaction is a bound, not a
-guarantee: it removes common credential shapes so a leaked secret cannot
-survive publication.
+guarantee: it removes common credential and PII shapes so a leaked
+secret cannot survive publication.
 
-Scope: internal hostnames and generic "customer data" are deliberately
-not redacted. Test plans legitimately cite service hostnames such as
-fulfillment-service.osac.svc and cluster API URLs, and there is no
-reliable shape for customer data; redacting them would destroy review
-feedback.
+Customer data: there is no reliable text shape for it, so it is
+addressed structurally instead. The model's only inputs are the PR's
+own public repository files plus the public osac-ai-skills and OSAC
+checkouts, so its output cannot disclose customer data that is not
+already public in the PR; on top of that, emails, identifiers, SSNs,
+card numbers, credentials, session values and internal hosts are
+redacted at every sink.
+
+Internal network identifiers are redacted (private, loopback and
+link-local IP addresses, and hostnames under internal-only suffixes
+such as .svc or .cluster.local). Public hostnames, URLs, public IP
+addresses and bare service names without those suffixs stay readable
+because test plans legitimately cite them.
 """
 
 import re
 
 REDACTED = "<REDACTED>"
+HOST_REDACTED = "<REDACTED-HOST>"
 
-# Each rule is (pattern, replacement). Whole-value rules replace the entire
-# match; keyed rules keep the key and separator and replace only the value.
-# Replacements may be strings (with group references) or callables that
-# return the replacement. PEM markers are assembled by concatenation so
-# secret scanners do not flag this source file as containing a key.
-_PEM_BEGIN = "-----BEGIN " + "[A-Z0-9 ]*PRIVATE KEY-----"
-_PEM_END = "-----END " + "[A-Z0-9 ]*PRIVATE KEY-----"
+# Vendor credential shapes are defined once here as named constants and
+# the rules below are built from them. These are regex sources, not
+# secrets; unit tests assemble their sample inputs from these pieces at
+# runtime so no test source spells a vendor prefix or key label.
+GITHUB_TOKEN_PREFIXES = ("ghp_", "gho_", "ghu_", "ghs_", "ghr_")
+GITHUB_PAT_PREFIX = "github_pat_"
+AWS_KEY_PREFIXES = ("AKIA", "ASIA")
+GOOGLE_KEY_PREFIX = "AIza"
+SLACK_TOKEN_PREFIXES = ("xoxa-", "xoxb-", "xoxp-", "xoxr-", "xoxs-")
+JWT_SEGMENT_PREFIX = "eyJ"
+PEM_OPEN_MARK = "-----BEGIN "
+PEM_CLOSE_MARK = "-----END "
+PEM_KEY_LABEL = "PRIVATE KEY"
+
+
+def _alternatives(values):
+    return "(?:" + "|".join(re.escape(value) for value in values) + ")"
 
 
 def _luhn(digits):
@@ -55,9 +75,15 @@ def _redact_card(match):
     return REDACTED if 13 <= len(digits) <= 19 and _luhn(digits) else text
 
 
+# Each rule is (pattern, replacement). Whole-value rules replace the entire
+# match; keyed rules keep the key and separator and replace only the value.
+# Replacements may be strings (with group references) or callables that
+# return the replacement.
 _RULES = (
     # Private-key PEM blocks of any key type.
-    (re.compile(_PEM_BEGIN + r".*?" + _PEM_END, re.DOTALL), REDACTED),
+    (re.compile(PEM_OPEN_MARK + r"[A-Z0-9 ]*" + PEM_KEY_LABEL + "-----"
+                + r".*?" + PEM_CLOSE_MARK + r"[A-Z0-9 ]*"
+                + PEM_KEY_LABEL + "-----", re.DOTALL), REDACTED),
     # Authorization header values, only when credential-shaped: an auth
     # scheme (case-insensitive) followed by an opaque value, or a single
     # opaque token of at least 20 characters. Prose after the key is
@@ -72,19 +98,41 @@ _RULES = (
     # Bearer tokens.
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{20,}"),
      r"\1" + REDACTED),
-    # GitHub tokens: classic ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained PATs.
-    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36}\b"), REDACTED),
-    (re.compile(r"\bgit" + r"hub_pat_[A-Za-z0-9_]{22,}\b"), REDACTED),
+    # GitHub tokens: the classic prefixes plus fine-grained PATs.
+    (re.compile(r"\b" + _alternatives(GITHUB_TOKEN_PREFIXES)
+                + r"[A-Za-z0-9]{36}\b"), REDACTED),
+    (re.compile(r"\b" + re.escape(GITHUB_PAT_PREFIX)
+                + r"[A-Za-z0-9_]{22,}\b"), REDACTED),
     # AWS access key IDs.
-    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), REDACTED),
+    (re.compile(r"\b" + _alternatives(AWS_KEY_PREFIXES)
+                + r"[0-9A-Z]{16}\b"), REDACTED),
     # Google API keys.
-    (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"), REDACTED),
+    (re.compile(r"\b" + re.escape(GOOGLE_KEY_PREFIX)
+                + r"[0-9A-Za-z_-]{35}\b"), REDACTED),
     # Slack tokens.
-    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"), REDACTED),
+    (re.compile(r"\b" + _alternatives(SLACK_TOKEN_PREFIXES)
+                + r"[A-Za-z0-9-]{10,}\b"), REDACTED),
     # JWTs: two base64url segments starting with the JSON marker, a dot,
     # and a third segment.
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}"
+    (re.compile(r"\b" + re.escape(JWT_SEGMENT_PREFIX) + r"[A-Za-z0-9_-]{10,}\."
+                + re.escape(JWT_SEGMENT_PREFIX) + r"[A-Za-z0-9_-]{10,}"
                 r"\.[A-Za-z0-9_-]*"), REDACTED),
+    # Internal IPv4 addresses: RFC1918 private, loopback and link-local.
+    (re.compile(
+        r"\b(?:10(?:\.\d{1,3}){3}"
+        r"|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}"
+        r"|192\.168(?:\.\d{1,3}){2}"
+        r"|127(?:\.\d{1,3}){3}"
+        r"|169\.254(?:\.\d{1,3}){2})\b"), HOST_REDACTED),
+    # Internal IPv6 addresses: unique local addresses (fc00::/7) and
+    # link-local addresses (fe80::/10).
+    (re.compile(r"\b(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):"
+                r"(?:[0-9a-f]{0,4}:){1,6}[0-9a-f]{0,4}\b"), HOST_REDACTED),
+    # Hostnames under internal-only suffixes. Public hostnames, URLs,
+    # public IP addresses and bare service names stay readable.
+    (re.compile(
+        r"\b[A-Za-z0-9.-]+\.(?:svc|cluster\.local|internal|local|lan|corp|"
+        r"intranet|home\.arpa)\b"), HOST_REDACTED),
     # US Social Security Numbers, excluding the invalid area/group/serial
     # combinations. Any 3-2-4 digit group passing those exclusions is
     # redacted even if it could be a phone number: over-redacting that
@@ -121,7 +169,7 @@ _RULES = (
 
 
 def redact(text):
-    """Replace credential-shaped substrings with a fixed marker."""
+    """Replace credential- and PII-shaped substrings with markers."""
     text = str(text)
     for pattern, replacement in _RULES:
         text = pattern.sub(replacement, text)

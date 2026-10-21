@@ -146,11 +146,16 @@ retain individual verdicts and the skills/OSAC source commit SHAs.
 
 Model output is untrusted data. Everything derived from it — verdict
 fields, plan revisions, error messages — passes a tested redaction filter
-(`.github/scripts/tp_redact.py`) that replaces credential-shaped
-substrings such as private keys, bearer and provider tokens, JWTs,
-secret-key assignments and email addresses with `<REDACTED>` before it is
-written to an artifact, printed, posted as a PR comment, or published as a
-check summary.
+(`.github/scripts/tp_redact.py`) before it is written to an artifact,
+printed, posted as a PR comment, or published as a check summary. The
+filter replaces private keys, bearer and provider tokens, JWTs,
+secret-key assignments, email addresses, US SSNs, Luhn-valid payment
+card numbers, session and cookie values, and internal IP addresses or
+hostnames with `<REDACTED>` / `<REDACTED-HOST>` markers. There is no
+reliable text shape for customer data, so it is handled structurally
+instead: the model's only inputs are the PR's own public repository
+files plus the public osac-ai-skills and OSAC checkouts, so its output
+cannot disclose customer data that is not already public in the PR.
 
 Each run is limited to four affected enhancements and four plan files,
 including unchanged plans and both filename aliases. Every rendered model

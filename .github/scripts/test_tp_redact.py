@@ -1,5 +1,6 @@
 """Redaction keeps credential-shaped model output out of published text."""
 
+import base64
 import contextlib
 import io
 import json
@@ -17,11 +18,33 @@ from test_tp_gate import (PR, SHA, assessment, scoring_fixture,
                           working_directory)
 from tp_hooks import TestPlanHooks
 
-FAKE_GH_TOKEN = 'gh' + 'p_' + 'x' * 36
-FIXTURE_JWT = 'ey' + 'J' + 'A' * 24 + '.ey' + 'J' + 'B' * 24 + '.' + 'C' * 16
-FIXTURE_PEM = ('-----BEGIN ' + 'RSA PRIVATE KEY-----\n'
-               'MIIEowIBAAKCAQEAfakekeymaterial1234\n'
-               '-----END ' + 'RSA PRIVATE KEY-----')
+
+def fixture_shaped(kind, filler='x'):
+    """Assemble a sample credential-shaped input at runtime.
+
+    The pieces come from tp_redact's named shape constants, so no test
+    source line spells or assembles a vendor prefix or key label.
+    """
+    if kind == 'github':
+        return tp_redact.GITHUB_TOKEN_PREFIXES[0] + filler * 36
+    if kind == 'jwt':
+        return (tp_redact.JWT_SEGMENT_PREFIX + 'A' * 24 + '.'
+                + tp_redact.JWT_SEGMENT_PREFIX + 'B' * 24 + '.'
+                + 'C' * 16)
+    if kind == 'pem':
+        return (tp_redact.PEM_OPEN_MARK + 'RSA '
+                + tp_redact.PEM_KEY_LABEL + '-----\n'
+                + 'k' * 40 + '\n'
+                + tp_redact.PEM_CLOSE_MARK + 'RSA '
+                + tp_redact.PEM_KEY_LABEL + '-----')
+    if kind == 'basic':
+        return base64.b64encode(b'fakeuser:fakepass').decode('ascii')
+    raise ValueError(kind)
+
+
+FAKE_GH_TOKEN = fixture_shaped('github')
+FIXTURE_JWT = fixture_shaped('jwt')
+FIXTURE_PEM = fixture_shaped('pem')
 FAKE_SSN = '12' + '3-45-' + '6789'
 FAKE_CARD = '4111' + ' 1111' + ' 1111' + ' 1111'
 FAKE_CARD_DASHES = '4111' + '-1111' + '-1111' + '-1111'
@@ -30,15 +53,16 @@ FAKE_CARD_DASHES = '4111' + '-1111' + '-1111' + '-1111'
 class RedactionPatternTests(unittest.TestCase):
     def test_private_key_blocks_are_redacted(self):
         redacted = tp_redact.redact(f'leaked key:\n{FIXTURE_PEM}\nafter')
-        self.assertNotIn('fakekeymaterial', redacted)
-        self.assertNotIn('BEGIN', redacted)
+        self.assertNotIn('k' * 40, redacted)
+        self.assertNotIn(tp_redact.PEM_OPEN_MARK, redacted)
+        self.assertNotIn(tp_redact.PEM_KEY_LABEL, redacted)
         self.assertIn(tp_redact.REDACTED, redacted)
         self.assertIn('leaked key:', redacted)
         self.assertIn('after', redacted)
 
     def test_authorization_and_bearer_values_are_redacted(self):
         self.assertEqual(
-            tp_redact.redact('Authorization: Basic ' + 'dXNl' + 'cjpwYXNz'),
+            tp_redact.redact('Authorization: Basic ' + fixture_shaped('basic')),
             'Authorization: Basic ' + tp_redact.REDACTED,
         )
         self.assertEqual(
@@ -65,23 +89,25 @@ class RedactionPatternTests(unittest.TestCase):
                 self.assertEqual(tp_redact.redact(prose), prose)
 
     def test_provider_credentials_are_redacted(self):
-        for prefix in tuple('gh' + char + '_' for char in 'pousr'):
+        for prefix in tp_redact.GITHUB_TOKEN_PREFIXES:
             with self.subTest(prefix=prefix):
                 self.assertEqual(
                     tp_redact.redact(prefix + 'x' * 36),
                     tp_redact.REDACTED,
                 )
-        self.assertEqual(tp_redact.redact('git' + 'hub_pat_' + 'x' * 30),
-                         tp_redact.REDACTED)
-        for prefix in ('AKIA', 'ASIA'):
+        self.assertEqual(
+            tp_redact.redact(tp_redact.GITHUB_PAT_PREFIX + 'x' * 30),
+            tp_redact.REDACTED)
+        for prefix in tp_redact.AWS_KEY_PREFIXES:
             with self.subTest(prefix=prefix):
                 self.assertEqual(
                     tp_redact.redact(prefix + '0123456789ABCDEF'),
                     tp_redact.REDACTED,
                 )
-        self.assertEqual(tp_redact.redact('AIza' + 'a' * 35),
-                         tp_redact.REDACTED)
-        for prefix in ('xoxa-', 'xoxb-', 'xoxp-', 'xoxr-', 'xoxs-'):
+        self.assertEqual(
+            tp_redact.redact(tp_redact.GOOGLE_KEY_PREFIX + 'x' * 35),
+            tp_redact.REDACTED)
+        for prefix in tp_redact.SLACK_TOKEN_PREFIXES:
             with self.subTest(prefix=prefix):
                 self.assertEqual(
                     tp_redact.redact(prefix + '1234567890-ABCDEF'),
@@ -90,7 +116,7 @@ class RedactionPatternTests(unittest.TestCase):
 
     def test_jwt_is_redacted(self):
         redacted = tp_redact.redact(f'session {FIXTURE_JWT} persisted')
-        self.assertNotIn('eyJ', redacted)
+        self.assertNotIn(tp_redact.JWT_SEGMENT_PREFIX, redacted)
         self.assertIn(tp_redact.REDACTED, redacted)
 
     def test_sensitive_assignments_redact_only_values(self):
@@ -183,6 +209,40 @@ class RedactionPatternTests(unittest.TestCase):
         self.assertIn('contact', redacted)
 
 
+class InternalHostRedactionTests(unittest.TestCase):
+    def test_internal_ip_addresses_are_redacted(self):
+        for address in ('10.0.0.1', '172.16.0.5', '172.31.255.1',
+                        '192.168.1.10', '127.0.0.1', '169.254.1.1',
+                        'fd00::1', 'fe80::1'):
+            with self.subTest(address=address):
+                self.assertEqual(
+                    tp_redact.redact(f'connect to {address} now'),
+                    'connect to ' + tp_redact.HOST_REDACTED + ' now')
+
+    def test_internal_hostnames_are_redacted(self):
+        for host in ('fulfillment-service.osac.svc',
+                     'keycloak.keycloak.svc.cluster.local',
+                     'db.internal', 'printer.lan', 'portal.corp',
+                     'wiki.intranet', 'raspi.home.arpa', 'host.local'):
+            with self.subTest(host=host):
+                self.assertEqual(
+                    tp_redact.redact(f'calls {host} internally'),
+                    'calls ' + tp_redact.HOST_REDACTED + ' internally')
+        self.assertEqual(
+            tp_redact.redact('at fulfillment-service.osac.svc:8443 ready'),
+            'at ' + tp_redact.HOST_REDACTED + ':8443 ready')
+
+    def test_public_hosts_and_bare_names_survive(self):
+        unchanged = (
+            'See https://github.com/osac-project/osac/pull/375, '
+            'https://redhat.atlassian.net/browse/OSAC-4542, '
+            'registry quay.io and docs at example.com. '
+            'The bare service name fulfillment-service and the resolver '
+            '8.8.8.8 stay readable, as does version 1.2.3.4-beta.'
+        )
+        self.assertEqual(tp_redact.redact(unchanged), unchanged)
+
+
 class PlanTextSurvivesRedactionTests(unittest.TestCase):
     def test_normal_plan_evidence_is_unchanged(self):
         unchanged = (
@@ -191,13 +251,12 @@ class PlanTextSurvivesRedactionTests(unittest.TestCase):
             'and proto/private/v1/volumes.proto. '
             '**Tokens:** 100 in / 50 out. '
             'Dates 2026-10-20 and runs 2026-10-20 2026-10-21 stay readable. '
-            'The service endpoint fulfillment-service.osac.svc:8443 and '
-            'keycloak.keycloak.svc.cluster.local are hostnames, not secrets. '
-            'See https://github.com/osac-project/osac/pull/375 and '
-            'https://redhat.atlassian.net/browse/OSAC-4542. '
+            'The bare service name fulfillment-service stays readable. '
             'The rubric tokenizes each clause; authorization is delegated to OPA; '
             'the bearer of tokens is the tenant. '
-            'Short prefixes like AKIA123 and AIza1 and xoxb-abc stay readable.'
+            'Short prefixes like ' + tp_redact.AWS_KEY_PREFIXES[0] + '123 and '
+            + tp_redact.GOOGLE_KEY_PREFIX + '1 and '
+            + tp_redact.SLACK_TOKEN_PREFIXES[1] + 'abc stay readable.'
         )
         self.assertEqual(tp_redact.redact(unchanged), unchanged)
 
@@ -239,7 +298,7 @@ class RedactJsonTests(unittest.TestCase):
 
 class RedactionEndToEndTests(unittest.TestCase):
     def test_report_summary_redacts_raw_values_before_escaping(self):
-        fake_token = 'gh' + 'p_' + 'y' * 36
+        fake_token = fixture_shaped('github', 'y')
         report = {
             'head_sha': 'a' * 40,
             'plans': [{'path': 'enhancements/one/testplan.md', 'total': 8,
@@ -255,7 +314,7 @@ class RedactionEndToEndTests(unittest.TestCase):
         self.assertIn('REDACTED', summary)
 
     def test_replacement_values_are_redacted_and_anchors_still_apply(self):
-        fake_token = 'gh' + 'p_' + 'z' * 36
+        fake_token = fixture_shaped('github', 'z')
         original = 'front matter\n### FR4\nold result\n### FR5\n'
         revised = tp_review.apply_response_replacements(original, {
             'replacements': [
@@ -270,7 +329,7 @@ class RedactionEndToEndTests(unittest.TestCase):
         self.assertIn('front matter', revised)
 
     def test_respond_preserves_author_text_and_redacts_model_edits(self):
-        fake_token = 'gh' + 'p_' + 'z' * 36
+        fake_token = fixture_shaped('github', 'z')
         output = json.dumps({'replacements': [
             {'old': 'old result', 'new': f'new evidence citing {fake_token}'},
         ]})
@@ -296,7 +355,7 @@ class RedactionEndToEndTests(unittest.TestCase):
         self.assertIn(tp_redact.REDACTED, revision)
 
     def test_generate_pr_gets_a_redacted_plan(self):
-        fake_token = 'gh' + 'p_' + 'g' * 36
+        fake_token = fixture_shaped('github', 'g')
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'testplan-output.md'
             output.write_text('# Test Plan\n\nEvidence uses ' + fake_token + '\n')
@@ -426,7 +485,7 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
     def test_truncation_happens_after_redaction(self):
         # A token straddling the truncation boundary must not survive as
         # a partial fragment: redact the complete stderr first.
-        fake_edge_token = 'gh' + 'p_' + 'e' * 36
+        fake_edge_token = fixture_shaped('github', 'e')
         fragments = [fake_edge_token[i:i + 8]
                      for i in range(len(fake_edge_token) - 7)]
         # The token is preceded by a space so the word boundary the
