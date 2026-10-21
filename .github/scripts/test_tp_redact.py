@@ -42,9 +42,6 @@ def fixture_shaped(kind, filler='x'):
     raise ValueError(kind)
 
 
-FAKE_GH_TOKEN = fixture_shaped('github')
-FIXTURE_JWT = fixture_shaped('jwt')
-FIXTURE_PEM = fixture_shaped('pem')
 FAKE_SSN = '12' + '3-45-' + '6789'
 FAKE_CARD = '4111' + ' 1111' + ' 1111' + ' 1111'
 FAKE_CARD_DASHES = '4111' + '-1111' + '-1111' + '-1111'
@@ -52,7 +49,8 @@ FAKE_CARD_DASHES = '4111' + '-1111' + '-1111' + '-1111'
 
 class RedactionPatternTests(unittest.TestCase):
     def test_private_key_blocks_are_redacted(self):
-        redacted = tp_redact.redact(f'leaked key:\n{FIXTURE_PEM}\nafter')
+        redacted = tp_redact.redact('leaked key:\n' + fixture_shaped('pem')
+                                 + '\nafter')
         self.assertNotIn('k' * 40, redacted)
         self.assertNotIn(tp_redact.PEM_OPEN_MARK, redacted)
         self.assertNotIn(tp_redact.PEM_KEY_LABEL, redacted)
@@ -115,7 +113,8 @@ class RedactionPatternTests(unittest.TestCase):
                 )
 
     def test_jwt_is_redacted(self):
-        redacted = tp_redact.redact(f'session {FIXTURE_JWT} persisted')
+        redacted = tp_redact.redact('session ' + fixture_shaped('jwt')
+                                 + ' persisted')
         self.assertNotIn(tp_redact.JWT_SEGMENT_PREFIX, redacted)
         self.assertIn(tp_redact.REDACTED, redacted)
 
@@ -135,7 +134,8 @@ class RedactionPatternTests(unittest.TestCase):
              'client-certificate-data: ' + tp_redact.REDACTED),
             (f'certificate-authority-data: LS0tLS1CRUd',
              'certificate-authority-data: ' + tp_redact.REDACTED),
-            (f'token: {FIXTURE_JWT}', 'token: ' + tp_redact.REDACTED),
+            ('token: ' + fixture_shaped('jwt'),
+             'token: ' + tp_redact.REDACTED),
         ):
             with self.subTest(source=source):
                 self.assertEqual(tp_redact.redact(source), expected)
@@ -145,7 +145,7 @@ class RedactionPatternTests(unittest.TestCase):
             ('ACCESS_TOKEN=abc123', 'ACCESS_TOKEN=' + tp_redact.REDACTED),
             ('access_token: val-1', 'access_token: ' + tp_redact.REDACTED),
             ('refresh_token: r-tok-987', 'refresh_token: ' + tp_redact.REDACTED),
-            ('FAKE_GH_TOKEN=' + FAKE_GH_TOKEN,
+            ('FAKE_GH_TOKEN=' + fixture_shaped('github'),
              'FAKE_GH_TOKEN=' + tp_redact.REDACTED),
             ('db_password=hunter2', 'db_password=' + tp_redact.REDACTED),
             ('DB_PASSWORD=hunter2', 'DB_PASSWORD=' + tp_redact.REDACTED),
@@ -282,7 +282,8 @@ class PlanTextSurvivesRedactionTests(unittest.TestCase):
         self.assertEqual(tp_redact.redact(unchanged), unchanged)
 
     def test_redaction_is_idempotent(self):
-        once = tp_redact.redact(f'password=hunter2 {FAKE_GH_TOKEN}')
+        once = tp_redact.redact('password=hunter2 '
+                              + fixture_shaped('github'))
         self.assertEqual(tp_redact.redact(once), once)
 
     def test_keyed_rule_stops_at_the_first_value_token(self):
@@ -302,14 +303,13 @@ class PlanTextSurvivesRedactionTests(unittest.TestCase):
 
 class RedactJsonTests(unittest.TestCase):
     def test_strings_are_redacted_recursively(self):
-        value = {
-            'summary': f'uses {FAKE_GH_TOKEN}',
-            'findings': {'suggestions': [f'email admin@example.com', 'clean']},
+        redacted = tp_redact.redact_json({
+            'summary': 'uses ' + fixture_shaped('github'),
+            'findings': {'suggestions': ['email admin@example.com', 'clean']},
             'scores': {'grounding': 2},
             'nested': [{'note': 'password=hunter2'}],
-        }
-        redacted = tp_redact.redact_json(value)
-        self.assertNotIn(FAKE_GH_TOKEN, json.dumps(redacted))
+        })
+        self.assertNotIn(fixture_shaped('github'), json.dumps(redacted))
         self.assertNotIn('example.com', json.dumps(redacted))
         self.assertNotIn('hunter2', json.dumps(redacted))
         self.assertEqual(redacted['scores'], {'grounding': 2})
@@ -319,40 +319,42 @@ class RedactJsonTests(unittest.TestCase):
 
 class RedactionEndToEndTests(unittest.TestCase):
     def test_report_summary_redacts_raw_values_before_escaping(self):
-        fake_token = fixture_shaped('github', 'y')
         report = {
             'head_sha': 'a' * 40,
             'plans': [{'path': 'enhancements/one/testplan.md', 'total': 8,
                        'verdict': 'Revise',
-                       'feedback': f'leaked {fake_token} by admin@example.com'}],
-            'error': f'mail user@example.com with {fake_token}',
+                       'feedback': ('leaked ' + fixture_shaped('github', 'y')
+                                    + ' by admin@example.com')}],
+            'error': 'mail user@example.com with '
+                     + fixture_shaped('github', 'y'),
         }
         summary = tp_check.report_summary(report)
-        self.assertNotIn(fake_token, summary)
+        self.assertNotIn(fixture_shaped('github', 'y'), summary)
         self.assertNotIn('example.com', summary)
         self.assertNotIn('&#64;', summary)
         self.assertNotIn('@', summary)
         self.assertIn('REDACTED', summary)
 
     def test_replacement_values_are_redacted_and_anchors_still_apply(self):
-        fake_token = fixture_shaped('github', 'z')
         original = 'front matter\n### FR4\nold result\n### FR5\n'
         revised = tp_review.apply_response_replacements(original, {
             'replacements': [
-                {'old': 'old result', 'new': f'specific result citing {fake_token}'},
+                {'old': 'old result',
+                 'new': 'specific result citing '
+                        + fixture_shaped('github', 'z')},
                 {'old': '### FR5\n', 'new': 'additional case\n### FR5\n'},
             ],
         })
-        self.assertNotIn(fake_token, revised)
+        self.assertNotIn(fixture_shaped('github', 'z'), revised)
         self.assertIn(tp_redact.REDACTED, revised)
         self.assertIn('specific result citing', revised)
         self.assertIn('additional case\n### FR5\n', revised)
         self.assertIn('front matter', revised)
 
     def test_respond_preserves_author_text_and_redacts_model_edits(self):
-        fake_token = fixture_shaped('github', 'z')
         output = json.dumps({'replacements': [
-            {'old': 'old result', 'new': f'new evidence citing {fake_token}'},
+            {'old': 'old result',
+             'new': 'new evidence citing ' + fixture_shaped('github', 'z')},
         ]})
         plan = ('owner@example.com\n' + 'planning context line\n' * 40
                 + '### FR4\nold result\n')
@@ -372,14 +374,14 @@ class RedactionEndToEndTests(unittest.TestCase):
             revision = (Path(directory) / 'testplan-output.md').read_text()
         self.assertIn('owner@example.com', revision)
         self.assertIn('new evidence citing', revision)
-        self.assertNotIn(fake_token, revision)
+        self.assertNotIn(fixture_shaped('github', 'z'), revision)
         self.assertIn(tp_redact.REDACTED, revision)
 
     def test_generate_pr_gets_a_redacted_plan(self):
-        fake_token = fixture_shaped('github', 'g')
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'testplan-output.md'
-            output.write_text('# Test Plan\n\nEvidence uses ' + fake_token + '\n')
+            output.write_text('# Test Plan\n\nEvidence uses '
+                              + fixture_shaped('github', 'g') + '\n')
             hooks = TestPlanHooks(repo='test/repo', skills_path='unused',
                                   shadow=False)
             with patch.object(
@@ -393,17 +395,19 @@ class RedactionEndToEndTests(unittest.TestCase):
             self.assertTrue(run.called)
             dest = Path(directory) / 'enhancements/osac-1/TestPlan.md'
             content = dest.read_text()
-            self.assertNotIn(fake_token, content)
+            self.assertNotIn(fixture_shaped('github', 'g'), content)
             self.assertIn(tp_redact.REDACTED, content)
             self.assertIn('# Test Plan', content)
 
     def test_model_secrets_never_reach_artifacts_comments_or_check_summary(self):
         value = assessment()
-        value['summary'] = f'Admin token {FAKE_GH_TOKEN} in evidence'
-        value['feedback'] = f'password: hunter2 and {FIXTURE_JWT}'
+        value['summary'] = ('Admin token ' + fixture_shaped('github')
+                            + ' in evidence')
+        value['feedback'] = 'password: hunter2 and ' + fixture_shaped('jwt')
         value['criterionNotes']['grounding'] = 'contact admin@example.com'
-        value['findings']['suggestions'] = [f'bearer {FAKE_GH_TOKEN}']
-        leaked = (FAKE_GH_TOKEN, 'hunter2', FIXTURE_JWT, 'admin@example.com')
+        value['findings']['suggestions'] = [
+            'bearer ' + fixture_shaped('github')]
+        leaked = ('hunter2', 'admin@example.com')
         with scoring_fixture() as skills, tempfile.TemporaryDirectory() as directory:
             hooks = TestPlanHooks(
                 repo='test/repo', skills_path=str(skills),
@@ -423,10 +427,14 @@ class RedactionEndToEndTests(unittest.TestCase):
             for name in ('assessment.json', 'verdict.json'):
                 artifact = (Path(directory) / name).read_text()
                 self.assertIn(tp_redact.REDACTED, artifact)
+                self.assertNotIn(fixture_shaped('github'), artifact)
+                self.assertNotIn(fixture_shaped('jwt'), artifact)
                 for secret in leaked:
                     self.assertNotIn(secret, artifact)
             body = upsert.call_args.args[1]
             self.assertIn('REDACTED', body)
+            self.assertNotIn(fixture_shaped('github'), body)
+            self.assertNotIn(fixture_shaped('jwt'), body)
             for secret in leaked:
                 self.assertNotIn(secret, body)
             report = {'head_sha': SHA, 'plans': [json.loads(
@@ -434,6 +442,8 @@ class RedactionEndToEndTests(unittest.TestCase):
             report['plans'][0]['path'] = 'enhancements/one/testplan.md'
             summary = tp_check.report_summary(report)
             self.assertIn('REDACTED', summary)
+            self.assertNotIn(fixture_shaped('github'), summary)
+            self.assertNotIn(fixture_shaped('jwt'), summary)
             for secret in leaked:
                 self.assertNotIn(secret, summary)
 
@@ -446,7 +456,8 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
     def test_review_exception_is_redacted_before_logging(self):
         # IN_CI is read from GITHUB_ACTIONS when the module is imported;
         # patch the constant so the CI exit contract is deterministic.
-        error = RuntimeError(f'provider failed with {FAKE_GH_TOKEN}')
+        error = RuntimeError('provider failed with '
+                             + fixture_shaped('github'))
         files = [{'filename': 'enhancements/one/testplan.md',
                   'status': 'modified'}]
         with patch.dict(os.environ, {'PR_NUMBER': '42'}), patch.object(
@@ -468,11 +479,12 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as raised:
                     tp_review.respond_main()
         self.assertEqual(raised.exception.code, 1)
-        self.assertNotIn(FAKE_GH_TOKEN, stream.getvalue())
+        self.assertNotIn(fixture_shaped('github'), stream.getvalue())
         self.assertIn(tp_redact.REDACTED, stream.getvalue())
 
     def test_score_exception_is_redacted_in_log_and_report(self):
-        error = RuntimeError(f'scoring failed with {FAKE_GH_TOKEN}')
+        error = RuntimeError('scoring failed with '
+                             + fixture_shaped('github'))
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA,
                          'GITHUB_STEP_SUMMARY': ''},
@@ -483,14 +495,43 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
             report = json.loads(
                 (Path(directory) / 'test-plan-score' / 'report.json').read_text())
         self.assertEqual(result, 1)
-        self.assertNotIn(FAKE_GH_TOKEN, stream.getvalue())
+        self.assertNotIn(fixture_shaped('github'), stream.getvalue())
         self.assertIn(tp_redact.REDACTED, stream.getvalue())
-        self.assertNotIn(FAKE_GH_TOKEN, report['error'])
+        self.assertNotIn(fixture_shaped('github'), report['error'])
         self.assertIn(tp_redact.REDACTED, report['error'])
+
+    def test_comment_failure_is_redacted_before_logging(self):
+        rows = [{'path': 'enhancements/one/testplan.md', 'verdict': 'Ready',
+                 'total': 10, 'feedback': 'complete'}]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {'PR_NUMBER': '42', 'PR_HEAD_SHA': SHA,
+                         'GITHUB_STEP_SUMMARY': '', 'TP_SHADOW': 'false',
+                         'TP_OSAC_PATH': directory,
+                         'TP_REVIEW_SKILLS_PATH': directory},
+        ), patch.object(
+            tp_review, 'get_pull_request', return_value=PR,
+        ), patch.object(
+            tp_review, 'get_changed_files', return_value=[],
+        ), patch.object(
+            tp_review, 'score_pr', return_value=rows,
+        ), patch.object(
+            tp_review, 'git_sha', return_value=SHA,
+        ), patch.object(
+            TestPlanHooks, '_upsert_score_comment',
+            side_effect=RuntimeError('comment failed with '
+                                     + fixture_shaped('github')),
+        ):
+            stream, redirect = self.capture_stderr()
+            with redirect, working_directory(directory):
+                result = tp_review.score_main()
+        self.assertEqual(result, 0)
+        self.assertNotIn(fixture_shaped('github'), stream.getvalue())
+        self.assertIn(tp_redact.REDACTED, stream.getvalue())
 
     def test_gh_error_text_is_redacted_before_logging(self):
         failure = Mock(returncode=1,
-                       stderr=f'request failed with {FAKE_GH_TOKEN}')
+                       stderr='request failed with '
+                              + fixture_shaped('github'))
         hooks = TestPlanHooks(repo='test/repo', skills_path='unused')
         with patch.object(tp_hooks.subprocess, 'run', return_value=failure):
             stream, redirect = self.capture_stderr()
@@ -498,22 +539,23 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
                 hooks._gh(['pr', 'view', '42'], check=False)
             with self.assertRaises(RuntimeError) as raised:
                 hooks._gh(['pr', 'view', '42'], check=True)
-        self.assertNotIn(FAKE_GH_TOKEN, stream.getvalue())
+        self.assertNotIn(fixture_shaped('github'), stream.getvalue())
         self.assertIn(tp_redact.REDACTED, stream.getvalue())
-        self.assertNotIn(FAKE_GH_TOKEN, str(raised.exception))
+        self.assertNotIn(fixture_shaped('github'), str(raised.exception))
         self.assertIn(tp_redact.REDACTED, str(raised.exception))
 
     def test_truncation_happens_after_redaction(self):
         # A token straddling the truncation boundary must not survive as
         # a partial fragment: redact the complete stderr first.
-        fake_edge_token = fixture_shaped('github', 'e')
-        fragments = [fake_edge_token[i:i + 8]
-                     for i in range(len(fake_edge_token) - 7)]
+        token_length = len(fixture_shaped('github', 'e'))
+        fragments = [fixture_shaped('github', 'e')[i:i + 8]
+                     for i in range(token_length - 7)]
         # The token is preceded by a space so the word boundary the
         # token patterns anchor on exists; glued to word characters a
         # token is deliberately not matched (that is what keeps paths
         # and identifiers readable).
-        failure = Mock(returncode=1, stderr='a' * 291 + ' ' + fake_edge_token)
+        failure = Mock(returncode=1, stderr='a' * 291 + ' '
+                                  + fixture_shaped('github', 'e'))
         with patch.object(tp_review.subprocess, 'run', return_value=failure):
             with self.assertRaises(RuntimeError) as raised:
                 tp_review.gh(['pr', 'view', '42'])
@@ -522,7 +564,8 @@ class ErrorLoggingRedactionTests(unittest.TestCase):
         for fragment in fragments:
             self.assertNotIn(fragment, message)
 
-        failure = Mock(returncode=1, stderr='b' * 191 + ' ' + fake_edge_token)
+        failure = Mock(returncode=1, stderr='b' * 191 + ' '
+                                  + fixture_shaped('github', 'e'))
         hooks = TestPlanHooks(repo='test/repo', skills_path='unused')
         with patch.object(tp_hooks.subprocess, 'run', return_value=failure):
             with self.assertRaises(RuntimeError) as raised:

@@ -664,7 +664,8 @@ def score_main():
                     f"{SCORE_COMMENT_TAG}\n<!-- sha:{expected_sha} -->\n\n{summary}",
                 )
             except Exception as exc:
-                print(f"Unable to post score feedback: {exc}", file=sys.stderr)
+                print(f"Unable to post score feedback: {redact(exc)}",
+                      file=sys.stderr)
     except Exception as exc:
         report["conclusion"] = "failure"
         report["error"] = redact(exc)
